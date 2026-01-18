@@ -133,25 +133,26 @@ function handleMessage(clientId, data) {
 }
 
 function handleJoin(clientId, data) {
-  const client = clients.get(clientId);
-  const { room, username } = data;
-  
-  if (!room) {
-    client.ws.send(JSON.stringify({
-      type: 'error',
-      message: 'Room ID required'
-    }));
-    return;
-  }
-  
-  // Leave current room if in one
-  if (client.room) {
-    handleLeave(clientId);
-  }
-  
-  // Update client data
-  client.room = room;
-  client.username = username || `Player${clientId.substring(0, 6)}`;
+    const client = clients.get(clientId);
+    const { room, username, status } = data;  // ADD status HERE
+    
+    if (!room) {
+        client.ws.send(JSON.stringify({
+            type: 'error',
+            message: 'Room ID required'
+        }));
+        return;
+    }
+    
+    // Leave current room if in one
+    if (client.room) {
+        handleLeave(clientId);
+    }
+    
+    // Update client data
+    client.room = room;
+    client.username = username || `Player${clientId.substring(0, 6)}`;
+    client.status = status || 'player';  // ADD THIS LINE
   
   // Add to room
   if (!rooms.has(room)) {
@@ -222,19 +223,20 @@ function handleLeave(clientId) {
 }
 
 function handleChat(clientId, data) {
-  const client = clients.get(clientId);
-  if (!client || !client.room) return;
-  
-  const { message } = data;
-  if (!message || message.trim().length === 0) return;
-  
-  const chatMessage = {
-    id: generateId(),
-    username: client.username,
-    clientId,
-    message: message.substring(0, 500), // Limit message length
-    timestamp: Date.now()
-  };
+    const client = clients.get(clientId);
+    if (!client || !client.room) return;
+    
+    const { message } = data;
+    if (!message || message.trim().length === 0) return;
+    
+    const chatMessage = {
+        id: generateId(),
+        username: client.username,
+        status: client.status || 'player',  // ADD THIS LINE
+        clientId,
+        message: message.substring(0, 500),
+        timestamp: Date.now()
+    };
   
   // Store in history
   const history = chatHistory.get(client.room);
