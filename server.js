@@ -5,10 +5,7 @@ const url = require('url');
 const PORT = process.env.PORT || 8080;
 
 // Create HTTP server
-const server = http.createServer((req, res) => {
-  res.writeHead(200, { 'Content-Type': 'text/plain' });
-  res.end('WebSocket Relay Server Running\n');
-});
+const server = http.createServer();
 
 // Create WebSocket server
 const wss = new WebSocket.Server({ server });
@@ -311,8 +308,10 @@ function handleDisconnect(clientId) {
 server.on('request', (req, res) => {
   const pathname = url.parse(req.url).pathname;
   
+  res.setHeader('Content-Type', pathname === '/status' ? 'application/json' : 'text/plain');
+  
   if (pathname === '/status') {
-    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.statusCode = 200;
     res.end(JSON.stringify({
       status: 'online',
       connections: clients.size,
@@ -321,7 +320,7 @@ server.on('request', (req, res) => {
       memory: process.memoryUsage()
     }, null, 2));
   } else {
-    res.writeHead(200, { 'Content-Type': 'text/plain' });
+    res.statusCode = 200;
     res.end('WebSocket Relay Server\n\nConnected clients: ' + clients.size + '\nActive rooms: ' + rooms.size);
   }
 });
