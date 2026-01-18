@@ -123,6 +123,22 @@ function handleMessage(clientId, data) {
     case 'get_logs':
       handleGetLogs(clientId, data);
       break;
+
+          case 'donation':
+      handleDonation(clientId, data);
+      break;
+      
+    case 'kick':
+      handleKick(clientId, data);
+      break;
+      
+    case 'disband':
+      handleDisband(clientId);
+      break;
+      
+    case 'get_players':
+      handleGetPlayers(clientId);
+      break;
       
     default:
       client.ws.send(JSON.stringify({
@@ -222,37 +238,7 @@ function handleLeave(clientId) {
   client.room = null;
 }
 
-function handleChat(clientId, data) {
-    const client = clients.get(clientId);
-    if (!client || !client.room) return;
-    
-    const { message } = data;
-    if (!message || message.trim().length === 0) return;
-    
-    const chatMessage = {
-        id: generateId(),
-        username: client.username,
-        status: client.status || 'player',  // ADD THIS LINE
-        clientId,
-        message: message.substring(0, 500),
-        timestamp: Date.now()
-    };
-  
-  // Store in history
-  const history = chatHistory.get(client.room);
-  history.push(chatMessage);
-  if (history.length > 100) {
-    history.shift();
-  }
-  
-  log('CHAT', { room: client.room, username: client.username, message });
-  
-  // Broadcast to room
-  broadcast(client.room, {
-    type: 'chat_message',
-    message: chatMessage
-  });
-}
+
 
 function handleGameState(clientId, data) {
   const client = clients.get(clientId);
@@ -304,6 +290,195 @@ function handleDisconnect(clientId) {
   
   handleLeave(clientId);
   clients.delete(clientId);
+}
+function handleDonation(clientId, data) {
+  const client = clients.get(clientId);
+  if (!client || !client.room) return;
+  
+  const { targetUsername, amount, donationType, from } = data;
+  
+  log('DONATION', { 
+    room: client.room, 
+    from, 
+    to: targetUsername, 
+    amount, 
+    type: donationType,
+    ip: client.ip 
+  });
+  
+  // Broadcast to room
+  broadcast(client.room, {
+    type: 'donation',
+    targetUsername,
+    amount,
+    donationType,
+    from
+  });
+}
+
+function handleKick(clientId, data) {
+  const client = clients.get(clientId);
+  if (!client || !client.room) return;
+  
+  const room = client.room;
+  const roomPlayers = Array.from(rooms.get(room) || []);
+  
+  // Check if sender is the leader (first player in room)
+  if (roomPlayers[0] !== clientId) {
+    client.ws.send(JSON.stringify({
+      type: 'error',
+      message: 'Only the party leader can kick members'
+    }));
+    return;
+  }
+  
+  const { targetId } = data;
+  
+  // Can't kick yourself
+  if (targetId === clientId) {
+    return;
+  }
+  
+  log('KICK', { 
+    room, 
+    kicker: client.username, 
+    target: targetId,
+    ip: client.ip 
+  });
+  
+  // Notify the kicked player
+  const targetClient = clients.get(targetId);
+  if (targetClient && targetClient.ws.readyState === WebSocket.OPEN) {
+    targetClient.ws.send(JSON.stringify({
+      type: 'kick',
+      targetId
+    }));
+    
+    // Force disconnect after a brief delay
+    setTimeout(() => {
+      handleLeave(targetId);
+    }, 500);
+  }
+  
+  // Notify room
+  broadcast(room, {
+    type: 'player_left',
+    player: {
+      id: targetId,
+      username: targetClient ? targetClient.username : 'Unknown'
+    }
+  }, targetId);
+}
+
+function handleDisband(clientId) {
+  const client = clients.get(clientId);
+  if (!client || !client.room) return;
+  
+  const room = client.room;
+  const roomPlayers = Array.from(rooms.get(room) || []);
+  
+  // Check if sender is the leader (first player in room)
+  if (roomPlayers[0] !== clientId) {
+    client.ws.send(JSON.stringify({
+      type: 'error',
+      message: 'Only the party leader can disband the party'
+    }));
+    return;
+  }
+  
+  log('DISBAND', { 
+    room, 
+    leader: client.username,
+    ip: client.ip 
+  });
+  
+  // Notify all members
+  broadcast(room, {
+    type: 'disband'
+  });
+  
+  // Force disconnect all members after a brief delay
+  setTimeout(() => {
+    roomPlayers.forEach(playerId => {
+      handleLeave(playerId);
+    });
+    
+    // Clean up room
+    rooms.delete(room);
+    chatHistory.delete(room);
+  }, 1000);
+}
+
+function handleGetPlayers(clientId) {
+  const client = clients.get(clientId);
+  if (!client || !client.room) return;
+  
+  const room = client.room;
+  
+  if (!rooms.has(room)) return;
+  
+  const players = Array.from(rooms.get(room))
+    .map(id => {
+      const c = clients.get(id);
+      return {
+        id: c.id,
+        username: c.username,
+        status: c.status
+      };
+    });
+  
+  client.ws.send(JSON.stringify({
+    type: 'players_update',
+    players
+  }));
+}
+
+
+function handleChat(clientId, data) {
+    const client = clients.get(clientId);
+    if (!client || !client.room) return;
+    
+    const { message } = data;
+    if (!message || message.trim().length === 0) return;
+    
+    const chatMessage = {
+        id: generateId(),
+        username: client.username,
+        status: client.status || 'player',
+        clientId,
+        message: message.substring(0, 500),
+        timestamp: Date.now(),
+        ip: client.ip  // ADD THIS LINE
+    };
+  
+  // Store in history
+  const history = chatHistory.get(client.room);
+  history.push(chatMessage);
+  if (history.length > 100) {
+    history.shift();
+  }
+  
+  // Log with IP
+  log('CHAT', { 
+    room: client.room, 
+    username: client.username, 
+    message,
+    ip: client.ip  // ADD THIS LINE
+  });
+  
+  // Broadcast to room (IP not included in broadcast for privacy)
+  broadcast(client.room, {
+    type: 'chat_message',
+    message: {
+      id: chatMessage.id,
+      username: chatMessage.username,
+      status: chatMessage.status,
+      clientId: chatMessage.clientId,
+      message: chatMessage.message,
+      timestamp: chatMessage.timestamp
+      // IP is NOT broadcast to clients
+    }
+  });
 }
 
 // Status endpoint - shows server stats
