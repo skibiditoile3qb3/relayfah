@@ -441,16 +441,16 @@ function handleChat(clientId, data) {
     const { message } = data;
     if (!message || message.trim().length === 0) return;
     
-    const chatMessage = {
-        id: generateId(),
-        username: client.username,
-        status: client.status || 'player',
-        clientId,
-        message: message.substring(0, 500),
-        timestamp: Date.now(),
-        ip: client.ip  // ADD THIS LINE
-    };
-  
+const chatMessage = {
+    id: generateId(),
+    username: client.username,
+    status: client.status || 'player',
+    nametag: data.nametag || 'none',
+    clientId,
+    message: message.substring(0, 500),
+    timestamp: Date.now(),
+    ip: client.ip
+};
   // Store in history
   const history = chatHistory.get(client.room);
   history.push(chatMessage);
@@ -467,19 +467,20 @@ function handleChat(clientId, data) {
   });
   
   // Broadcast to room (IP not included in broadcast for privacy)
-  broadcast(client.room, {
+broadcast(client.room, {
     type: 'chat_message',
     message: {
-      id: chatMessage.id,
-      username: chatMessage.username,
-      status: chatMessage.status,
-      clientId: chatMessage.clientId,
-      message: chatMessage.message,
-      timestamp: chatMessage.timestamp
-      // IP is NOT broadcast to clients
+        id: chatMessage.id,
+        username: chatMessage.username,
+        status: chatMessage.status,
+        nametag: chatMessage.nametag,
+        clientId: chatMessage.clientId,
+        message: chatMessage.message,
+        timestamp: chatMessage.timestamp
     }
-  });
+});
 }
+
 
 // Status endpoint - shows server stats
 server.on('request', (req, res) => {
