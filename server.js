@@ -295,7 +295,7 @@ function handleDonation(clientId, data) {
   const client = clients.get(clientId);
   if (!client || !client.room) return;
   
-  const { targetUsername, amount, donationType, from } = data;
+  const { targetUsername, amount, donationType, from, senderStatus } = data;  // ✅ ADD senderStatus
   
   log('DONATION', { 
     room: client.room, 
@@ -303,6 +303,7 @@ function handleDonation(clientId, data) {
     to: targetUsername, 
     amount, 
     type: donationType,
+    senderStatus: senderStatus || 'player',  // ✅ ADD THIS
     ip: client.ip 
   });
   
@@ -312,7 +313,8 @@ function handleDonation(clientId, data) {
     targetUsername,
     amount,
     donationType,
-    from
+    from,
+    senderStatus: senderStatus || 'player'  // ✅ ADD THIS
   });
 }
 
