@@ -513,10 +513,10 @@ function handleAdminAction(clientId, data) {
     return;
   }
   
-  // ✅ FIX: Find target client IN GLOBAL CHAT ROOM
+  // ✅ FIX: Search ALL clients, not just in admin's room
   let targetClient = null;
   for (const [id, c] of clients.entries()) {
-    if (c.username === targetUsername && c.room === 'global_chat') {  // ← ADD THIS
+    if (c.username === targetUsername) {  // Remove room check
       targetClient = c;
       break;
     }
@@ -526,7 +526,7 @@ function handleAdminAction(clientId, data) {
     client.ws.send(JSON.stringify({
       type: 'admin_action_result',
       success: false,
-      message: `User ${targetUsername} is not online in global chat`
+      message: `User ${targetUsername} is not online`
     }));
     return;
   }
@@ -543,7 +543,6 @@ function handleAdminAction(clientId, data) {
       break;
   }
 }
-
 function handlePromoteAction(adminClient, targetClient, data) {
   const { newRank, adminRank } = data;
   
@@ -560,7 +559,7 @@ function handlePromoteAction(adminClient, targetClient, data) {
   // Update target's status in server
   targetClient.status = newRank;
   
-  // Send rank change to target
+  // ✅ Send directly to target (not using broadcast)
   if (targetClient.ws.readyState === WebSocket.OPEN) {
     targetClient.ws.send(JSON.stringify({
       type: 'rank_changed',
@@ -577,14 +576,15 @@ function handlePromoteAction(adminClient, targetClient, data) {
     newRank: newRank
   });
   
-  // ✅ This one already exists, good!
-  adminClient.ws.send(JSON.stringify({
-    type: 'admin_action_result',
-    success: true,
-    message: `${targetClient.username} rank changed to ${newRank}`
-  }));
+  // Send confirmation to admin
+  if (adminClient.ws.readyState === WebSocket.OPEN) {
+    adminClient.ws.send(JSON.stringify({
+      type: 'admin_action_result',
+      success: true,
+      message: `${targetClient.username} rank changed to ${newRank}`
+    }));
+  }
 }
-
 function handleBanAction(adminClient, targetClient, data) {
   const { days, permanent, adminRank, reason, maxDays } = data;
   
@@ -620,15 +620,15 @@ function handleBanAction(adminClient, targetClient, data) {
   }
   
   // Calculate ban duration
- const banUntil = permanent ? 9999999999999 : Date.now() + (days * 24 * 60 * 60 * 1000);
+  const banUntil = permanent ? 9999999999999 : Date.now() + (days * 24 * 60 * 60 * 1000);
   
-  // Send ban notification to target
+  // ✅ Send directly to target
   if (targetClient.ws.readyState === WebSocket.OPEN) {
     targetClient.ws.send(JSON.stringify({
       type: 'banned',
       until: banUntil,
       bannedBy: data.adminUsername,
-      reason: reason,
+      reason: reason || 'No reason provided',
       days: permanent ? 0 : days
     }));
     
@@ -649,18 +649,20 @@ function handleBanAction(adminClient, targetClient, data) {
     reason: reason
   });
   
-  // ✅ ADD THIS - Send success confirmation to admin
-  adminClient.ws.send(JSON.stringify({
-    type: 'admin_action_result',
-    success: true,
-    message: `${targetClient.username} banned for ${permanent ? 'PERMANENT' : days + ' days'}`
-  }));
+  // Send confirmation to admin
+  if (adminClient.ws.readyState === WebSocket.OPEN) {
+    adminClient.ws.send(JSON.stringify({
+      type: 'admin_action_result',
+      success: true,
+      message: `${targetClient.username} banned for ${permanent ? 'PERMANENT' : days + ' days'}`
+    }));
+  }
 }
 
 function handleMuteAction(adminClient, targetClient, data) {
   const { hours } = data;
   
-  // Send mute to target
+  // ✅ Send directly to target
   if (targetClient.ws.readyState === WebSocket.OPEN) {
     targetClient.ws.send(JSON.stringify({
       type: 'muted',
@@ -678,12 +680,14 @@ function handleMuteAction(adminClient, targetClient, data) {
     hours: hours
   });
   
-  // ✅ ADD THIS - Send success confirmation to admin
-  adminClient.ws.send(JSON.stringify({
-    type: 'admin_action_result',
-    success: true,
-    message: `${targetClient.username} muted for ${hours} hours`
-  }));
+  // Send confirmation to admin
+  if (adminClient.ws.readyState === WebSocket.OPEN) {
+    adminClient.ws.send(JSON.stringify({
+      type: 'admin_action_result',
+      success: true,
+      message: `${targetClient.username} muted for ${hours} hours`
+    }));
+  }
 }
 function handleGetAdminLogs(clientId, data) {
   const client = clients.get(clientId);
