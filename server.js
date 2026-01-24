@@ -577,6 +577,7 @@ function handlePromoteAction(adminClient, targetClient, data) {
     newRank: newRank
   });
   
+  // ✅ This one already exists, good!
   adminClient.ws.send(JSON.stringify({
     type: 'admin_action_result',
     success: true,
@@ -619,7 +620,7 @@ function handleBanAction(adminClient, targetClient, data) {
   }
   
   // Calculate ban duration
-  const banUntil = permanent ? 9999999999999 : Date.now() + (days * 24 * 60 * 60 * 1000);
+ const banUntil = permanent ? 9999999999999 : Date.now() + (days * 24 * 60 * 60 * 1000);
   
   // Send ban notification to target
   if (targetClient.ws.readyState === WebSocket.OPEN) {
@@ -648,6 +649,7 @@ function handleBanAction(adminClient, targetClient, data) {
     reason: reason
   });
   
+  // ✅ ADD THIS - Send success confirmation to admin
   adminClient.ws.send(JSON.stringify({
     type: 'admin_action_result',
     success: true,
@@ -676,13 +678,13 @@ function handleMuteAction(adminClient, targetClient, data) {
     hours: hours
   });
   
+  // ✅ ADD THIS - Send success confirmation to admin
   adminClient.ws.send(JSON.stringify({
     type: 'admin_action_result',
     success: true,
     message: `${targetClient.username} muted for ${hours} hours`
   }));
 }
-
 function handleGetAdminLogs(clientId, data) {
   const client = clients.get(clientId);
   if (!client) return;
