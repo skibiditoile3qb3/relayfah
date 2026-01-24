@@ -513,10 +513,10 @@ function handleAdminAction(clientId, data) {
     return;
   }
   
-  // Find target client
+  // ✅ FIX: Find target client IN GLOBAL CHAT ROOM
   let targetClient = null;
   for (const [id, c] of clients.entries()) {
-    if (c.username === targetUsername) {
+    if (c.username === targetUsername && c.room === 'global_chat') {  // ← ADD THIS
       targetClient = c;
       break;
     }
@@ -526,7 +526,7 @@ function handleAdminAction(clientId, data) {
     client.ws.send(JSON.stringify({
       type: 'admin_action_result',
       success: false,
-      message: `User ${targetUsername} is not online`
+      message: `User ${targetUsername} is not online in global chat`
     }));
     return;
   }
