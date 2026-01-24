@@ -60,6 +60,7 @@ wss.on('connection', (ws, req) => {
     id: clientId,
     username: null,
     room: null,
+    status: 'player',
     ip,
     connectedAt: Date.now()
   });
@@ -124,7 +125,7 @@ function handleMessage(clientId, data) {
       handleGetLogs(clientId, data);
       break;
 
-          case 'donation':
+    case 'donation':
       handleDonation(clientId, data);
       break;
       
@@ -140,6 +141,14 @@ function handleMessage(clientId, data) {
       handleGetPlayers(clientId);
       break;
       
+    case 'admin_action':
+      handleAdminAction(clientId, data);
+      break;
+      
+    case 'get_admin_logs':
+      handleGetAdminLogs(clientId, data);
+      break;
+      
     default:
       client.ws.send(JSON.stringify({
         type: 'error',
@@ -149,26 +158,26 @@ function handleMessage(clientId, data) {
 }
 
 function handleJoin(clientId, data) {
-    const client = clients.get(clientId);
-    const { room, username, status } = data;  // ADD status HERE
-    
-    if (!room) {
-        client.ws.send(JSON.stringify({
-            type: 'error',
-            message: 'Room ID required'
-        }));
-        return;
-    }
-    
-    // Leave current room if in one
-    if (client.room) {
-        handleLeave(clientId);
-    }
-    
-    // Update client data
-    client.room = room;
-    client.username = username || `Player${clientId.substring(0, 6)}`;
-    client.status = status || 'player';  // ADD THIS LINE
+  const client = clients.get(clientId);
+  const { room, username, status } = data;
+  
+  if (!room) {
+    client.ws.send(JSON.stringify({
+      type: 'error',
+      message: 'Room ID required'
+    }));
+    return;
+  }
+  
+  // Leave current room if in one
+  if (client.room) {
+    handleLeave(clientId);
+  }
+  
+  // Update client data
+  client.room = room;
+  client.username = username || `Player${clientId.substring(0, 6)}`;
+  client.status = status || 'player';
   
   // Add to room
   if (!rooms.has(room)) {
@@ -177,7 +186,7 @@ function handleJoin(clientId, data) {
   }
   rooms.get(room).add(clientId);
   
-  log('JOIN', { clientId, username: client.username, room });
+  log('JOIN', { clientId, username: client.username, room, status: client.status });
   
   // Get room players
   const players = Array.from(rooms.get(room))
@@ -185,7 +194,8 @@ function handleJoin(clientId, data) {
       const c = clients.get(id);
       return {
         id: c.id,
-        username: c.username
+        username: c.username,
+        status: c.status
       };
     });
   
@@ -194,7 +204,7 @@ function handleJoin(clientId, data) {
     type: 'joined',
     room,
     players,
-    chatHistory: chatHistory.get(room).slice(-50) // Last 50 messages
+    chatHistory: chatHistory.get(room).slice(-50)
   }));
   
   // Notify others in room
@@ -202,7 +212,8 @@ function handleJoin(clientId, data) {
     type: 'player_joined',
     player: {
       id: client.id,
-      username: client.username
+      username: client.username,
+      status: client.status
     }
   }, clientId);
 }
@@ -238,7 +249,53 @@ function handleLeave(clientId) {
   client.room = null;
 }
 
-
+function handleChat(clientId, data) {
+  const client = clients.get(clientId);
+  if (!client || !client.room) return;
+  
+  const { message } = data;
+  if (!message || message.trim().length === 0) return;
+  
+  const chatMessage = {
+    id: generateId(),
+    username: client.username,
+    status: client.status || 'player',
+    nametag: data.nametag || 'none',
+    clientId,
+    message: message.substring(0, 500),
+    timestamp: Date.now(),
+    ip: client.ip
+  };
+  
+  // Store in history
+  const history = chatHistory.get(client.room);
+  history.push(chatMessage);
+  if (history.length > 100) {
+    history.shift();
+  }
+  
+  // Log with IP
+  log('CHAT', { 
+    room: client.room, 
+    username: client.username, 
+    message,
+    ip: client.ip
+  });
+  
+  // Broadcast to room (IP not included in broadcast for privacy)
+  broadcast(client.room, {
+    type: 'chat_message',
+    message: {
+      id: chatMessage.id,
+      username: chatMessage.username,
+      status: chatMessage.status,
+      nametag: chatMessage.nametag,
+      clientId: chatMessage.clientId,
+      message: chatMessage.message,
+      timestamp: chatMessage.timestamp
+    }
+  });
+}
 
 function handleGameState(clientId, data) {
   const client = clients.get(clientId);
@@ -272,7 +329,6 @@ function handlePlayerAction(clientId, data) {
 function handleGetLogs(clientId, data) {
   const client = clients.get(clientId);
   
-  // Only allow if client has admin privileges (you can add auth here)
   const limit = Math.min(data.limit || 100, 1000);
   const recentLogs = logs.slice(-limit);
   
@@ -282,20 +338,11 @@ function handleGetLogs(clientId, data) {
   }));
 }
 
-function handleDisconnect(clientId) {
-  const client = clients.get(clientId);
-  if (!client) return;
-  
-  log('DISCONNECT', { clientId, username: client.username });
-  
-  handleLeave(clientId);
-  clients.delete(clientId);
-}
 function handleDonation(clientId, data) {
   const client = clients.get(clientId);
   if (!client || !client.room) return;
   
-  const { targetUsername, amount, donationType, from, senderStatus } = data;  // ✅ ADD senderStatus
+  const { targetUsername, amount, donationType, from, senderStatus } = data;
   
   log('DONATION', { 
     room: client.room, 
@@ -303,7 +350,7 @@ function handleDonation(clientId, data) {
     to: targetUsername, 
     amount, 
     type: donationType,
-    senderStatus: senderStatus || 'player',  // ✅ ADD THIS
+    senderStatus: senderStatus || 'player',
     ip: client.ip 
   });
   
@@ -314,7 +361,7 @@ function handleDonation(clientId, data) {
     amount,
     donationType,
     from,
-    senderStatus: senderStatus || 'player'  // ✅ ADD THIS
+    senderStatus: senderStatus || 'player'
   });
 }
 
@@ -435,54 +482,232 @@ function handleGetPlayers(clientId) {
   }));
 }
 
-
-function handleChat(clientId, data) {
-    const client = clients.get(clientId);
-    if (!client || !client.room) return;
-    
-    const { message } = data;
-    if (!message || message.trim().length === 0) return;
-    
-const chatMessage = {
-    id: generateId(),
-    username: client.username,
-    status: client.status || 'player',
-    nametag: data.nametag || 'none',
-    clientId,
-    message: message.substring(0, 500),
-    timestamp: Date.now(),
-    ip: client.ip
-};
-  // Store in history
-  const history = chatHistory.get(client.room);
-  history.push(chatMessage);
-  if (history.length > 100) {
-    history.shift();
-  }
+function handleDisconnect(clientId) {
+  const client = clients.get(clientId);
+  if (!client) return;
   
-  // Log with IP
-  log('CHAT', { 
-    room: client.room, 
-    username: client.username, 
-    message,
-    ip: client.ip  // ADD THIS LINE
-  });
+  log('DISCONNECT', { clientId, username: client.username });
   
-  // Broadcast to room (IP not included in broadcast for privacy)
-broadcast(client.room, {
-    type: 'chat_message',
-    message: {
-        id: chatMessage.id,
-        username: chatMessage.username,
-        status: chatMessage.status,
-        nametag: chatMessage.nametag,
-        clientId: chatMessage.clientId,
-        message: chatMessage.message,
-        timestamp: chatMessage.timestamp
-    }
-});
+  handleLeave(clientId);
+  clients.delete(clientId);
 }
 
+// ============================================
+// ADMIN FUNCTIONS
+// ============================================
+
+function handleAdminAction(clientId, data) {
+  const client = clients.get(clientId);
+  if (!client) return;
+  
+  const { action, targetUsername, adminUsername, adminRank } = data;
+  
+  // Verify admin permissions
+  const staffRanks = ['owner', 'sr.admin', 'admin', 'moderator'];
+  if (!staffRanks.includes(adminRank)) {
+    client.ws.send(JSON.stringify({
+      type: 'admin_action_result',
+      success: false,
+      message: 'Insufficient permissions'
+    }));
+    return;
+  }
+  
+  // Find target client
+  let targetClient = null;
+  for (const [id, c] of clients.entries()) {
+    if (c.username === targetUsername) {
+      targetClient = c;
+      break;
+    }
+  }
+  
+  if (!targetClient) {
+    client.ws.send(JSON.stringify({
+      type: 'admin_action_result',
+      success: false,
+      message: `User ${targetUsername} is not online`
+    }));
+    return;
+  }
+  
+  switch (action) {
+    case 'promote':
+      handlePromoteAction(client, targetClient, data);
+      break;
+    case 'ban':
+      handleBanAction(client, targetClient, data);
+      break;
+    case 'mute':
+      handleMuteAction(client, targetClient, data);
+      break;
+  }
+}
+
+function handlePromoteAction(adminClient, targetClient, data) {
+  const { newRank, adminRank } = data;
+  
+  // Only owner can promote
+  if (adminRank !== 'owner') {
+    adminClient.ws.send(JSON.stringify({
+      type: 'admin_action_result',
+      success: false,
+      message: 'Only owner can change ranks'
+    }));
+    return;
+  }
+  
+  // Update target's status in server
+  targetClient.status = newRank;
+  
+  // Send rank change to target
+  if (targetClient.ws.readyState === WebSocket.OPEN) {
+    targetClient.ws.send(JSON.stringify({
+      type: 'rank_changed',
+      newRank: newRank,
+      changedBy: data.adminUsername
+    }));
+  }
+  
+  // Log action
+  log('ADMIN_ACTION', {
+    action: 'PROMOTE',
+    admin: data.adminUsername,
+    target: targetClient.username,
+    newRank: newRank
+  });
+  
+  adminClient.ws.send(JSON.stringify({
+    type: 'admin_action_result',
+    success: true,
+    message: `${targetClient.username} rank changed to ${newRank}`
+  }));
+}
+
+function handleBanAction(adminClient, targetClient, data) {
+  const { days, permanent, adminRank, reason, maxDays } = data;
+  
+  // Check permissions
+  const targetRank = targetClient.status || 'player';
+  
+  if (adminRank === 'admin' && ['moderator', 'admin', 'sr.admin', 'owner'].includes(targetRank)) {
+    adminClient.ws.send(JSON.stringify({
+      type: 'admin_action_result',
+      success: false,
+      message: 'Cannot ban staff members'
+    }));
+    return;
+  }
+  
+  if (adminRank === 'sr.admin' && ['sr.admin', 'owner'].includes(targetRank)) {
+    adminClient.ws.send(JSON.stringify({
+      type: 'admin_action_result',
+      success: false,
+      message: 'Cannot ban Sr. Admins or Owner'
+    }));
+    return;
+  }
+  
+  // Validate day limits
+  if (maxDays && days > maxDays) {
+    adminClient.ws.send(JSON.stringify({
+      type: 'admin_action_result',
+      success: false,
+      message: `Cannot ban for more than ${maxDays} days`
+    }));
+    return;
+  }
+  
+  // Calculate ban duration
+  const banUntil = permanent ? 9999999999999 : Date.now() + (days * 24 * 60 * 60 * 1000);
+  
+  // Send ban notification to target
+  if (targetClient.ws.readyState === WebSocket.OPEN) {
+    targetClient.ws.send(JSON.stringify({
+      type: 'banned',
+      until: banUntil,
+      bannedBy: data.adminUsername,
+      reason: reason,
+      days: permanent ? 0 : days
+    }));
+    
+    // Disconnect them after 3 seconds
+    setTimeout(() => {
+      if (targetClient.ws.readyState === WebSocket.OPEN) {
+        targetClient.ws.close();
+      }
+    }, 3000);
+  }
+  
+  // Log ban
+  log('ADMIN_ACTION', {
+    action: 'BAN',
+    admin: data.adminUsername,
+    target: targetClient.username,
+    days: permanent ? 'PERMANENT' : days,
+    reason: reason
+  });
+  
+  adminClient.ws.send(JSON.stringify({
+    type: 'admin_action_result',
+    success: true,
+    message: `${targetClient.username} banned for ${permanent ? 'PERMANENT' : days + ' days'}`
+  }));
+}
+
+function handleMuteAction(adminClient, targetClient, data) {
+  const { hours } = data;
+  
+  // Send mute to target
+  if (targetClient.ws.readyState === WebSocket.OPEN) {
+    targetClient.ws.send(JSON.stringify({
+      type: 'muted',
+      until: Date.now() + (hours * 60 * 60 * 1000),
+      mutedBy: data.adminUsername,
+      hours: hours
+    }));
+  }
+  
+  // Log mute
+  log('ADMIN_ACTION', {
+    action: 'MUTE',
+    admin: data.adminUsername,
+    target: targetClient.username,
+    hours: hours
+  });
+  
+  adminClient.ws.send(JSON.stringify({
+    type: 'admin_action_result',
+    success: true,
+    message: `${targetClient.username} muted for ${hours} hours`
+  }));
+}
+
+function handleGetAdminLogs(clientId, data) {
+  const client = clients.get(clientId);
+  if (!client) return;
+  
+  // Verify permissions
+  const staffRanks = ['owner', 'sr.admin', 'admin', 'moderator'];
+  if (!staffRanks.includes(data.adminRank)) {
+    return;
+  }
+  
+  // Filter logs for admin actions
+  const adminLogs = logs
+    .filter(log => log.type === 'ADMIN_ACTION')
+    .slice(-50)
+    .map(log => ({
+      timestamp: log.timestamp,
+      action: `${log.data.action} by ${log.data.admin} on ${log.data.target}`,
+      details: log.data.reason || log.data.newRank || (log.data.days ? `${log.data.days} days` : '') || (log.data.hours ? `${log.data.hours} hours` : '')
+    }));
+  
+  client.ws.send(JSON.stringify({
+    type: 'admin_logs',
+    logs: adminLogs
+  }));
+}
 
 // Status endpoint - shows server stats
 server.on('request', (req, res) => {
