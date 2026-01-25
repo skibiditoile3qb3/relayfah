@@ -618,24 +618,63 @@ function handleBanAction(adminClient, targetClient, data) {
 }
 
 function handleMuteAction(adminClient, targetClient, data) {
-  const { hours } = data;
+  const { hours, adminRank } = data;
+  
+  // Check permissions based on hierarchy
+  const targetRank = targetClient.status || 'player';
+  
+  // ✅ OWNER CAN MUTE ANYONE
+  if (adminRank === 'owner') {
+    // Owner bypasses all restrictions - skip to mute logic below
+  } 
+  // ✅ SR.ADMIN can mute everyone except owner and other sr.admins
+  else if (adminRank === 'sr.admin' && ['sr.admin', 'owner'].includes(targetRank)) {
+    adminClient.ws.send(JSON.stringify({
+      type: 'admin_action_result',
+      success: false,
+      message: 'Cannot mute Sr. Admins or Owner'
+    }));
+    return;
+  }
+  // ✅ ADMIN can mute moderators and players only
+  else if (adminRank === 'admin' && ['moderator', 'admin', 'sr.admin', 'owner'].includes(targetRank)) {
+    adminClient.ws.send(JSON.stringify({
+      type: 'admin_action_result',
+      success: false,
+      message: 'Cannot mute staff members of equal or higher rank'
+    }));
+    return;
+  }
+  // ✅ MODERATOR can mute players only
+  else if (adminRank === 'moderator' && targetRank !== 'player') {
+    adminClient.ws.send(JSON.stringify({
+      type: 'admin_action_result',
+      success: false,
+      message: 'Moderators can only mute players'
+    }));
+    return;
+  }
+  
+  // Calculate mute duration
+  const muteUntil = Date.now() + (hours * 60 * 60 * 1000);
   
   // Send directly to target
   if (targetClient.ws.readyState === WebSocket.OPEN) {
     targetClient.ws.send(JSON.stringify({
       type: 'muted',
-      until: Date.now() + (hours * 60 * 60 * 1000),
+      until: muteUntil,
       mutedBy: data.adminUsername,
       hours: hours
     }));
   }
- 
   
   // Log mute
   log('ADMIN_ACTION', {
     action: 'MUTE',
     admin: data.adminUsername,
+    adminRank: adminRank,
     target: targetClient.username,
+    targetRank: targetRank,
     hours: hours
   });
   
@@ -644,7 +683,7 @@ function handleMuteAction(adminClient, targetClient, data) {
     adminClient.ws.send(JSON.stringify({
       type: 'admin_action_result',
       success: true,
-      message: `${targetClient.username} muted for ${hours} hours`
+      message: `${targetClient.username} (${targetRank}) muted for ${hours} hours`
     }));
   }
 }
