@@ -547,21 +547,38 @@ function handleBanAction(adminClient, targetClient, data) {
   // Check permissions
   const targetRank = targetClient.status || 'player';
   
+  // Define staff ranks
+  const staffRanks = ['owner', 'sr.admin', 'admin', 'moderator'];
+  const isTargetStaff = staffRanks.includes(targetRank);
+  
   // ✅ OWNER CAN BAN ANYONE (including staff)
   if (adminRank === 'owner') {
     // Owner bypasses all restrictions - skip to ban logic below
-  } else if (adminRank === 'admin' && ['moderator', 'admin', 'sr.admin', 'owner'].includes(targetRank)) {
-    adminClient.ws.send(JSON.stringify({
-      type: 'admin_action_result',
-      success: false,
-      message: 'Cannot ban staff members'
-    }));
-    return;
-  } else if (adminRank === 'sr.admin' && ['sr.admin', 'owner'].includes(targetRank)) {
+  } 
+  // ✅ SR.ADMIN can ban everyone except owner and other sr.admins
+  else if (adminRank === 'sr.admin' && ['sr.admin', 'owner'].includes(targetRank)) {
     adminClient.ws.send(JSON.stringify({
       type: 'admin_action_result',
       success: false,
       message: 'Cannot ban Sr. Admins or Owner'
+    }));
+    return;
+  }
+  // ✅ ADMIN can ban moderators and non-staff only
+  else if (adminRank === 'admin' && ['admin', 'sr.admin', 'owner'].includes(targetRank)) {
+    adminClient.ws.send(JSON.stringify({
+      type: 'admin_action_result',
+      success: false,
+      message: 'Cannot ban staff members of equal or higher rank'
+    }));
+    return;
+  }
+  // ✅ MODERATOR cannot ban anyone (if they even have ban perms)
+  else if (adminRank === 'moderator' && isTargetStaff) {
+    adminClient.ws.send(JSON.stringify({
+      type: 'admin_action_result',
+      success: false,
+      message: 'Moderators cannot ban staff members'
     }));
     return;
   }
@@ -601,8 +618,9 @@ function handleBanAction(adminClient, targetClient, data) {
   log('ADMIN_ACTION', {
     action: 'BAN',
     admin: data.adminUsername,
+    adminRank: adminRank,
     target: targetClient.username,
-    targetRank: targetRank,  // ✅ Log target rank for reference
+    targetRank: targetRank,
     days: permanent ? 'PERMANENT' : days,
     reason: reason
   });
@@ -616,12 +634,15 @@ function handleBanAction(adminClient, targetClient, data) {
     }));
   }
 }
-
 function handleMuteAction(adminClient, targetClient, data) {
   const { hours, adminRank } = data;
   
   // Check permissions based on hierarchy
   const targetRank = targetClient.status || 'player';
+  
+  // Define staff ranks
+  const staffRanks = ['owner', 'sr.admin', 'admin', 'moderator'];
+  const isTargetStaff = staffRanks.includes(targetRank);
   
   // ✅ OWNER CAN MUTE ANYONE
   if (adminRank === 'owner') {
@@ -636,8 +657,8 @@ function handleMuteAction(adminClient, targetClient, data) {
     }));
     return;
   }
-  // ✅ ADMIN can mute moderators and players only
-  else if (adminRank === 'admin' && ['moderator', 'admin', 'sr.admin', 'owner'].includes(targetRank)) {
+  // ✅ ADMIN can mute moderators and non-staff only
+  else if (adminRank === 'admin' && ['admin', 'sr.admin', 'owner'].includes(targetRank)) {
     adminClient.ws.send(JSON.stringify({
       type: 'admin_action_result',
       success: false,
@@ -645,12 +666,12 @@ function handleMuteAction(adminClient, targetClient, data) {
     }));
     return;
   }
-  // ✅ MODERATOR can mute players only
-  else if (adminRank === 'moderator' && targetRank !== 'player') {
+  // ✅ MODERATOR can mute non-staff only (players, legendary, rare, mystical, etc.)
+  else if (adminRank === 'moderator' && isTargetStaff) {
     adminClient.ws.send(JSON.stringify({
       type: 'admin_action_result',
       success: false,
-      message: 'Moderators can only mute players'
+      message: 'Moderators cannot mute staff members'
     }));
     return;
   }
