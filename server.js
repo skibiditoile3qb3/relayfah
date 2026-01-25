@@ -547,16 +547,17 @@ function handleBanAction(adminClient, targetClient, data) {
   // Check permissions
   const targetRank = targetClient.status || 'player';
   
-  if (adminRank === 'admin' && ['moderator', 'admin', 'sr.admin', 'owner'].includes(targetRank)) {
+  // ✅ OWNER CAN BAN ANYONE (including staff)
+  if (adminRank === 'owner') {
+    // Owner bypasses all restrictions - skip to ban logic below
+  } else if (adminRank === 'admin' && ['moderator', 'admin', 'sr.admin', 'owner'].includes(targetRank)) {
     adminClient.ws.send(JSON.stringify({
       type: 'admin_action_result',
       success: false,
       message: 'Cannot ban staff members'
     }));
     return;
-  }
-  
-  if (adminRank === 'sr.admin' && ['sr.admin', 'owner'].includes(targetRank)) {
+  } else if (adminRank === 'sr.admin' && ['sr.admin', 'owner'].includes(targetRank)) {
     adminClient.ws.send(JSON.stringify({
       type: 'admin_action_result',
       success: false,
@@ -565,8 +566,8 @@ function handleBanAction(adminClient, targetClient, data) {
     return;
   }
   
-  // Validate day limits
-  if (maxDays && days > maxDays) {
+  // Validate day limits (owner can bypass this too if you want)
+  if (adminRank !== 'owner' && maxDays && days > maxDays) {
     adminClient.ws.send(JSON.stringify({
       type: 'admin_action_result',
       success: false,
@@ -601,6 +602,7 @@ function handleBanAction(adminClient, targetClient, data) {
     action: 'BAN',
     admin: data.adminUsername,
     target: targetClient.username,
+    targetRank: targetRank,  // ✅ Log target rank for reference
     days: permanent ? 'PERMANENT' : days,
     reason: reason
   });
@@ -610,7 +612,7 @@ function handleBanAction(adminClient, targetClient, data) {
     adminClient.ws.send(JSON.stringify({
       type: 'admin_action_result',
       success: true,
-      message: `${targetClient.username} banned for ${permanent ? 'PERMANENT' : days + ' days'}`
+      message: `${targetClient.username} (${targetRank}) banned for ${permanent ? 'PERMANENT' : days + ' days'}`
     }));
   }
 }
