@@ -491,6 +491,10 @@ function handleAdminAction(clientId, data) {
     case 'mute':
       handleMuteAction(client, targetClient, data);
       break;
+      
+      case 'unban':  // ADD THIS CASE
+      handleUnbanAction(client, targetClient, data);
+      break;
   }
 }
 
@@ -623,6 +627,43 @@ function handleMuteAction(adminClient, targetClient, data) {
       hours: hours
     }));
   }
+  function handleUnbanAction(adminClient, targetClient, data) {
+  const { adminRank } = data;
+  
+  // All staff can unban
+  const staffRanks = ['owner', 'sr.admin', 'admin', 'moderator'];
+  if (!staffRanks.includes(adminRank)) {
+    adminClient.ws.send(JSON.stringify({
+      type: 'admin_action_result',
+      success: false,
+      message: 'Insufficient permissions'
+    }));
+    return;
+  }
+  
+  // Send directly to target to clear their ban
+  if (targetClient.ws.readyState === WebSocket.OPEN) {
+    targetClient.ws.send(JSON.stringify({
+      type: 'unbanned',
+      unbannedBy: data.adminUsername
+    }));
+  }
+
+  log('ADMIN_ACTION', {
+    action: 'UNBAN',
+    admin: data.adminUsername,
+    target: targetClient.username
+  });
+  
+  // Send confirmation to admin
+  if (adminClient.ws.readyState === WebSocket.OPEN) {
+    adminClient.ws.send(JSON.stringify({
+      type: 'admin_action_result',
+      success: true,
+      message: `${targetClient.username} has been unbanned`
+    }));
+  }
+}
   
   // Log mute
   log('ADMIN_ACTION', {
