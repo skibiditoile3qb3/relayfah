@@ -627,7 +627,26 @@ function handleMuteAction(adminClient, targetClient, data) {
       hours: hours
     }));
   }
-  function handleUnbanAction(adminClient, targetClient, data) {
+ 
+  
+  // Log mute
+  log('ADMIN_ACTION', {
+    action: 'MUTE',
+    admin: data.adminUsername,
+    target: targetClient.username,
+    hours: hours
+  });
+  
+  // Send confirmation to admin
+  if (adminClient.ws.readyState === WebSocket.OPEN) {
+    adminClient.ws.send(JSON.stringify({
+      type: 'admin_action_result',
+      success: true,
+      message: `${targetClient.username} muted for ${hours} hours`
+    }));
+  }
+}
+ function handleUnbanAction(adminClient, targetClient, data) {
   const { adminRank } = data;
   
   // All staff can unban
@@ -661,24 +680,6 @@ function handleMuteAction(adminClient, targetClient, data) {
       type: 'admin_action_result',
       success: true,
       message: `${targetClient.username} has been unbanned`
-    }));
-  }
-}
-  
-  // Log mute
-  log('ADMIN_ACTION', {
-    action: 'MUTE',
-    admin: data.adminUsername,
-    target: targetClient.username,
-    hours: hours
-  });
-  
-  // Send confirmation to admin
-  if (adminClient.ws.readyState === WebSocket.OPEN) {
-    adminClient.ws.send(JSON.stringify({
-      type: 'admin_action_result',
-      success: true,
-      message: `${targetClient.username} muted for ${hours} hours`
     }));
   }
 }
