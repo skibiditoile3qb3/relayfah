@@ -14,7 +14,9 @@ const wss = new WebSocket.Server({ server });
 const clients = new Map();
 const rooms = new Map();
 const chatHistory = new Map();
-const logs = [];
+
+// Track last logged actions to prevent spam
+const lastLoggedActions = new Map();
 
 // Utility functions
 function generateId() {
@@ -35,19 +37,31 @@ function broadcast(room, message, excludeId = null) {
 }
 
 function log(type, data) {
-  const logEntry = {
-    timestamp: new Date().toISOString(),
-    type,
-    data
-  };
-  logs.push(logEntry);
+  // Don't log repetitive game actions
+  const skipTypes = ['GAME_STATE', 'PLAYER_ACTION', 'HEARTBEAT'];
   
-  // Keep only last 1000 logs
-  if (logs.length > 1000) {
-    logs.shift();
+  if (skipTypes.includes(type)) {
+    const key = `${type}_${data.clientId}_${data.action || 'state'}`;
+    const lastLog = lastLoggedActions.get(key);
+    const now = Date.now();
+    
+    // Only log if it's been more than 10 seconds since last same action
+    if (lastLog && now - lastLog < 10000) {
+      return; // Skip logging
+    }
+    
+    lastLoggedActions.set(key, now);
+    
+    // Clean up old entries (older than 1 minute)
+    for (const [k, time] of lastLoggedActions.entries()) {
+      if (now - time > 60000) {
+        lastLoggedActions.delete(k);
+      }
+    }
   }
   
-  console.log(`[${logEntry.timestamp}] ${type}:`, data);
+  // Just console log, don't store
+  console.log(`[${new Date().toISOString()}] ${type}:`, data);
 }
 
 // WebSocket connection handler
@@ -62,7 +76,8 @@ wss.on('connection', (ws, req) => {
     room: null,
     status: 'player',
     ip,
-    connectedAt: Date.now()
+    connectedAt: Date.now(),
+    lastHeartbeat: Date.now()
   });
   
   log('CONNECTION', { clientId, ip });
@@ -120,21 +135,13 @@ function handleMessage(clientId, data) {
     case 'player_action':
       handlePlayerAction(clientId, data);
       break;
-      
-    case 'get_logs':
-      handleGetLogs(clientId, data);
+
+    case 'heartbeat':
+      handleHeartbeat(clientId);
       break;
 
     case 'donation':
       handleDonation(clientId, data);
-      break;
-      
-    case 'kick':
-      handleKick(clientId, data);
-      break;
-      
-    case 'disband':
-      handleDisband(clientId);
       break;
       
     case 'get_players':
@@ -143,10 +150,6 @@ function handleMessage(clientId, data) {
       
     case 'admin_action':
       handleAdminAction(clientId, data);
-      break;
-      
-    case 'get_admin_logs':
-      handleGetAdminLogs(clientId, data);
       break;
       
     default:
@@ -178,6 +181,7 @@ function handleJoin(clientId, data) {
   client.room = room;
   client.username = username || `Player${clientId.substring(0, 6)}`;
   client.status = status || 'player';
+  client.lastHeartbeat = Date.now();
   
   // Add to room
   if (!rooms.has(room)) {
@@ -216,6 +220,12 @@ function handleJoin(clientId, data) {
       status: client.status
     }
   }, clientId);
+  
+  // Send initial player count to everyone
+  broadcast(room, {
+    type: 'players_update',
+    players
+  });
 }
 
 function handleLeave(clientId) {
@@ -242,6 +252,22 @@ function handleLeave(clientId) {
           id: client.id,
           username: client.username
         }
+      });
+      
+      // Update player count
+      const players = Array.from(rooms.get(room))
+        .map(id => {
+          const c = clients.get(id);
+          return {
+            id: c.id,
+            username: c.username,
+            status: c.status
+          };
+        });
+      
+      broadcast(room, {
+        type: 'players_update',
+        players
       });
     }
   }
@@ -326,16 +352,33 @@ function handlePlayerAction(clientId, data) {
   }, clientId);
 }
 
-function handleGetLogs(clientId, data) {
+function handleHeartbeat(clientId) {
   const client = clients.get(clientId);
+  if (!client || !client.room) return;
   
-  const limit = Math.min(data.limit || 100, 1000);
-  const recentLogs = logs.slice(-limit);
+  // Update last activity
+  client.lastHeartbeat = Date.now();
   
-  client.ws.send(JSON.stringify({
-    type: 'logs',
-    logs: recentLogs
-  }));
+  log('HEARTBEAT', { clientId });
+  
+  // Send updated player count to everyone in room
+  const room = client.room;
+  if (!rooms.has(room)) return;
+  
+  const players = Array.from(rooms.get(room))
+    .map(id => {
+      const c = clients.get(id);
+      return {
+        id: c.id,
+        username: c.username,
+        status: c.status
+      };
+    });
+  
+  broadcast(room, {
+    type: 'players_update',
+    players
+  });
 }
 
 function handleDonation(clientId, data) {
@@ -363,99 +406,6 @@ function handleDonation(clientId, data) {
     from,
     senderStatus: senderStatus || 'player'
   });
-}
-
-function handleKick(clientId, data) {
-  const client = clients.get(clientId);
-  if (!client || !client.room) return;
-  
-  const room = client.room;
-  const roomPlayers = Array.from(rooms.get(room) || []);
-  
-  // Check if sender is the leader (first player in room)
-  if (roomPlayers[0] !== clientId) {
-    client.ws.send(JSON.stringify({
-      type: 'error',
-      message: 'Only the party leader can kick members'
-    }));
-    return;
-  }
-  
-  const { targetId } = data;
-  
-  // Can't kick yourself
-  if (targetId === clientId) {
-    return;
-  }
-  
-  log('KICK', { 
-    room, 
-    kicker: client.username, 
-    target: targetId,
-    ip: client.ip 
-  });
-  
-  // Notify the kicked player
-  const targetClient = clients.get(targetId);
-  if (targetClient && targetClient.ws.readyState === WebSocket.OPEN) {
-    targetClient.ws.send(JSON.stringify({
-      type: 'kick',
-      targetId
-    }));
-    
-    // Force disconnect after a brief delay
-    setTimeout(() => {
-      handleLeave(targetId);
-    }, 500);
-  }
-  
-  // Notify room
-  broadcast(room, {
-    type: 'player_left',
-    player: {
-      id: targetId,
-      username: targetClient ? targetClient.username : 'Unknown'
-    }
-  }, targetId);
-}
-
-function handleDisband(clientId) {
-  const client = clients.get(clientId);
-  if (!client || !client.room) return;
-  
-  const room = client.room;
-  const roomPlayers = Array.from(rooms.get(room) || []);
-  
-  // Check if sender is the leader (first player in room)
-  if (roomPlayers[0] !== clientId) {
-    client.ws.send(JSON.stringify({
-      type: 'error',
-      message: 'Only the party leader can disband the party'
-    }));
-    return;
-  }
-  
-  log('DISBAND', { 
-    room, 
-    leader: client.username,
-    ip: client.ip 
-  });
-  
-  // Notify all members
-  broadcast(room, {
-    type: 'disband'
-  });
-  
-  // Force disconnect all members after a brief delay
-  setTimeout(() => {
-    roomPlayers.forEach(playerId => {
-      handleLeave(playerId);
-    });
-    
-    // Clean up room
-    rooms.delete(room);
-    chatHistory.delete(room);
-  }, 1000);
 }
 
 function handleGetPlayers(clientId) {
@@ -513,10 +463,10 @@ function handleAdminAction(clientId, data) {
     return;
   }
   
-  // ✅ FIX: Search ALL clients, not just in admin's room
+  // Search ALL clients, not just in admin's room
   let targetClient = null;
   for (const [id, c] of clients.entries()) {
-    if (c.username === targetUsername) {  // Remove room check
+    if (c.username === targetUsername) {
       targetClient = c;
       break;
     }
@@ -543,6 +493,7 @@ function handleAdminAction(clientId, data) {
       break;
   }
 }
+
 function handlePromoteAction(adminClient, targetClient, data) {
   const { newRank, adminRank } = data;
   
@@ -559,7 +510,7 @@ function handlePromoteAction(adminClient, targetClient, data) {
   // Update target's status in server
   targetClient.status = newRank;
   
-  // ✅ Send directly to target (not using broadcast)
+  // Send directly to target
   if (targetClient.ws.readyState === WebSocket.OPEN) {
     targetClient.ws.send(JSON.stringify({
       type: 'rank_changed',
@@ -585,6 +536,7 @@ function handlePromoteAction(adminClient, targetClient, data) {
     }));
   }
 }
+
 function handleBanAction(adminClient, targetClient, data) {
   const { days, permanent, adminRank, reason, maxDays } = data;
   
@@ -622,7 +574,7 @@ function handleBanAction(adminClient, targetClient, data) {
   // Calculate ban duration
   const banUntil = permanent ? 9999999999999 : Date.now() + (days * 24 * 60 * 60 * 1000);
   
-  // ✅ Send directly to target
+  // Send directly to target
   if (targetClient.ws.readyState === WebSocket.OPEN) {
     targetClient.ws.send(JSON.stringify({
       type: 'banned',
@@ -662,7 +614,7 @@ function handleBanAction(adminClient, targetClient, data) {
 function handleMuteAction(adminClient, targetClient, data) {
   const { hours } = data;
   
-  // ✅ Send directly to target
+  // Send directly to target
   if (targetClient.ws.readyState === WebSocket.OPEN) {
     targetClient.ws.send(JSON.stringify({
       type: 'muted',
@@ -689,31 +641,21 @@ function handleMuteAction(adminClient, targetClient, data) {
     }));
   }
 }
-function handleGetAdminLogs(clientId, data) {
-  const client = clients.get(clientId);
-  if (!client) return;
+
+// Clean up dead connections every 15 seconds
+setInterval(() => {
+  const now = Date.now();
+  const timeout = 15000; // 15 seconds
   
-  // Verify permissions
-  const staffRanks = ['owner', 'sr.admin', 'admin', 'moderator'];
-  if (!staffRanks.includes(data.adminRank)) {
-    return;
+  for (const [clientId, client] of clients.entries()) {
+    if (client.room && client.lastHeartbeat) {
+      if (now - client.lastHeartbeat > timeout) {
+        console.log(`Cleaning up inactive client: ${client.username}`);
+        handleDisconnect(clientId);
+      }
+    }
   }
-  
-  // Filter logs for admin actions
-  const adminLogs = logs
-    .filter(log => log.type === 'ADMIN_ACTION')
-    .slice(-50)
-    .map(log => ({
-      timestamp: log.timestamp,
-      action: `${log.data.action} by ${log.data.admin} on ${log.data.target}`,
-      details: log.data.reason || log.data.newRank || (log.data.days ? `${log.data.days} days` : '') || (log.data.hours ? `${log.data.hours} hours` : '')
-    }));
-  
-  client.ws.send(JSON.stringify({
-    type: 'admin_logs',
-    logs: adminLogs
-  }));
-}
+}, 15000);
 
 // Status endpoint - shows server stats
 server.on('request', (req, res) => {
