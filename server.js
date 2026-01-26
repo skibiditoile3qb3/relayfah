@@ -14,6 +14,7 @@ const wss = new WebSocket.Server({ server });
 const clients = new Map();
 const rooms = new Map();
 const chatHistory = new Map();
+const queuedPlayers = new Map();
 
 // Track last logged actions to prevent spam
 const lastLoggedActions = new Map();
@@ -136,10 +137,9 @@ function handleMessage(clientId, data) {
       handlePlayerAction(clientId, data);
       break;
 
-    case 'heartbeat':
-      handleHeartbeat(clientId);
-      break;
-
+   case 'heartbeat':
+  handleHeartbeat(clientId, data);
+  break;
     case 'donation':
       handleDonation(clientId, data);
       break;
@@ -147,6 +147,10 @@ function handleMessage(clientId, data) {
     case 'get_players':
       handleGetPlayers(clientId);
       break;
+
+      case 'get_queue_count':  // NEW
+  handleGetQueueCount(clientId);
+  break;
       
     case 'admin_action':
       handleAdminAction(clientId, data);
@@ -352,12 +356,17 @@ function handlePlayerAction(clientId, data) {
   }, clientId);
 }
 
-function handleHeartbeat(clientId) {
+function handleHeartbeat(clientId, data) {  // Add data parameter
   const client = clients.get(clientId);
   if (!client || !client.room) return;
   
   // Update last activity
   client.lastHeartbeat = Date.now();
+  
+  // Store queue status from heartbeat data
+  if (data && typeof data.inQueue !== 'undefined') {
+    client.inQueue = data.inQueue;
+  }
   
   log('HEARTBEAT', { clientId });
   
@@ -432,6 +441,29 @@ function handleGetPlayers(clientId) {
   }));
 }
 
+function handleGetQueueCount(clientId) {
+  const client = clients.get(clientId);
+  if (!client || !client.room) return;
+  
+  const room = client.room;
+  
+  // Count players in queue for this room
+  let queueCount = 0;
+  if (rooms.has(room)) {
+    rooms.get(room).forEach(id => {
+      const c = clients.get(id);
+      // Check if they sent inQueue=true in their heartbeat
+      if (c && c.inQueue) {
+        queueCount++;
+      }
+    });
+  }
+  
+  client.ws.send(JSON.stringify({
+    type: 'queue_count',
+    count: queueCount
+  }));
+}
 function handleDisconnect(clientId) {
   const client = clients.get(clientId);
   if (!client) return;
