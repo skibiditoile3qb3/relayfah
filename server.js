@@ -129,6 +129,14 @@ function handleMessage(clientId, data) {
     case 'chat':
       handleChat(clientId, data);
       break;
+
+      case 'check_password':  // ADDED
+      handlePasswordCheck(clientId, data);
+      break;
+      
+    case 'check_owner_password':  // ADDED
+      handleOwnerPasswordCheck(clientId, data);
+      break;
       
     case 'game_state':
       handleGameState(clientId, data);
@@ -475,6 +483,45 @@ function handleDisconnect(clientId) {
   clients.delete(clientId);
 }
 
+function handlePasswordCheck(clientId, data) {
+  const client = clients.get(clientId);
+  if (!client) return;
+  
+  const correctPassword = process.env.SITE_PASSWORD || 'igotmogged';
+  const isValid = data.password === correctPassword;
+  
+  client.ws.send(JSON.stringify({
+    type: 'password_result',
+    valid: isValid
+  }));
+  
+  log('PASSWORD_CHECK', { 
+    clientId, 
+    valid: isValid,
+    ip: client.ip 
+  });
+}
+
+// Owner Password Check Handler
+function handleOwnerPasswordCheck(clientId, data) {
+  const client = clients.get(clientId);
+  if (!client) return;
+  
+  const correctOwnerPassword = process.env.OWNER_KEY || 'goofy';
+  const isValid = data.password === correctOwnerPassword;
+  
+  client.ws.send(JSON.stringify({
+    type: 'owner_password_result',
+    valid: isValid
+  }));
+  
+  log('OWNER_PASSWORD_CHECK', { 
+    clientId,
+    username: client.username,
+    valid: isValid,
+    ip: client.ip 
+  });
+}
 // ============================================
 // ADMIN FUNCTIONS
 // ============================================
