@@ -87,6 +87,7 @@ wss.on('connection', (ws, req) => {
   ws.send(JSON.stringify({
     type: 'connected',
     clientId,
+    password: process.env.SITE_PASSWORD || 'igotmogged',
     message: 'Connected to relay server'
   }));
   
