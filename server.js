@@ -561,21 +561,23 @@ function handleAdminAction(clientId, data) {
     return;
   }
   
-  switch (action) {
+switch (action) {
     case 'promote':
-      handlePromoteAction(client, targetClient, data);
-      break;
+        handlePromoteAction(client, targetClient, data);
+        break;
     case 'ban':
-      handleBanAction(client, targetClient, data);
-      break;
+        handleBanAction(client, targetClient, data);
+        break;
     case 'mute':
-      handleMuteAction(client, targetClient, data);
-      break;
-      
-      case 'unban':  // ADD THIS CASE
-      handleUnbanAction(client, targetClient, data);
-      break;
-  }
+        handleMuteAction(client, targetClient, data);
+        break;
+    case 'unmute':
+        handleUnmuteAction(client, targetClient, data);
+        break;
+    case 'unban':
+        handleUnbanAction(client, targetClient, data);
+        break;
+}
 }
 
 function handlePromoteAction(adminClient, targetClient, data) {
@@ -787,6 +789,44 @@ function handleMuteAction(adminClient, targetClient, data) {
       message: `${targetClient.username} (${targetRank}) muted for ${hours} hours`
     }));
   }
+}
+
+function handleUnmuteAction(adminClient, targetClient, data) {
+    const { adminRank } = data;
+    
+    // All staff can unmute
+    const staffRanks = ['owner', 'sr.admin', 'admin', 'moderator'];
+    if (!staffRanks.includes(adminRank)) {
+        adminClient.ws.send(JSON.stringify({
+            type: 'admin_action_result',
+            success: false,
+            message: 'Insufficient permissions'
+        }));
+        return;
+    }
+    
+    // Send directly to target to clear their mute
+    if (targetClient.ws.readyState === WebSocket.OPEN) {
+        targetClient.ws.send(JSON.stringify({
+            type: 'unmuted',
+            unmutedBy: data.adminUsername
+        }));
+    }
+
+    log('ADMIN_ACTION', {
+        action: 'UNMUTE',
+        admin: data.adminUsername,
+        target: targetClient.username
+    });
+    
+    // Send confirmation to admin
+    if (adminClient.ws.readyState === WebSocket.OPEN) {
+        adminClient.ws.send(JSON.stringify({
+            type: 'admin_action_result',
+            success: true,
+            message: `${targetClient.username} has been unmuted`
+        }));
+    }
 }
  function handleUnbanAction(adminClient, targetClient, data) {
   const { adminRank } = data;
