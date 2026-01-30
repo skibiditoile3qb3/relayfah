@@ -185,6 +185,18 @@ function handleJoin(clientId, data) {
     return;
   }
   
+  // Validate staff_chat access
+  if (room === 'staff_chat') {
+    const staffRanks = ['owner', 'sr.admin', 'admin', 'moderator'];
+    if (!staffRanks.includes(status)) {
+      client.ws.send(JSON.stringify({
+        type: 'error',
+        message: 'Staff chat is for staff only'
+      }));
+      return;
+    }
+  }
+  
   // Leave current room if in one
   if (client.room) {
     handleLeave(clientId);
@@ -292,8 +304,20 @@ function handleChat(clientId, data) {
   const client = clients.get(clientId);
   if (!client || !client.room) return;
   
-  const { message } = data;
+  const { message, room } = data;
   if (!message || message.trim().length === 0) return;
+  
+  // Check if trying to send to staff_chat
+  if (room === 'staff_chat') {
+    const staffRanks = ['owner', 'sr.admin', 'admin', 'moderator'];
+    if (!staffRanks.includes(client.status)) {
+      client.ws.send(JSON.stringify({
+        type: 'error',
+        message: 'Staff chat is for staff only'
+      }));
+      return;
+    }
+  }
   
   const chatMessage = {
     id: generateId(),
