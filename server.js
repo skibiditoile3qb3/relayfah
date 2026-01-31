@@ -1,6 +1,21 @@
 const WebSocket = require('ws');
 const http = require('http');
 const url = require('url');
+const { MongoClient } = require('mongodb');
+
+const MONGO_URI = process.env.MONGO_URI;
+let db = null;
+
+async function connectDB() {
+  try {
+    const client = await MongoClient.connect(MONGO_URI);
+    db = client.db('gladiator_game');
+    console.log('MongoDBAtlas connected');
+  } catch(e) {
+    console.error('MongoDBAtlas connection failed:', e);
+  }
+}
+connectDB();
 
 const PORT = process.env.PORT || 8080;
 
@@ -161,8 +176,20 @@ function handleMessage(clientId, data) {
   handleGetQueueCount(clientId);
   break;
       
-    case 'admin_action':
-      handleAdminAction(clientId, data);
+   case 'save_game':
+      handleSaveGame(clientId, data);
+      break;
+
+    case 'load_game':
+      handleLoadGame(clientId, data);
+      break;
+
+    case 'update_elo':
+      handleUpdateElo(clientId, data);
+      break;
+
+    case 'get_leaderboard':
+      handleGetLeaderboard(clientId);
       break;
       
     default:
@@ -496,6 +523,107 @@ function handleGetQueueCount(clientId) {
     type: 'queue_count',
     count: queueCount
   }));
+}
+async function handleSaveGame(clientId, data) {
+  const client = clients.get(clientId);
+  if (!client || !db) return;
+  
+  const { saveId, saveData } = data;
+  
+  try {
+    await db.collection('saves').updateOne(
+      { saveId },
+      { $set: { saveId, data: saveData, lastUpdated: Date.now() } },
+      { upsert: true }
+    );
+    
+    client.ws.send(JSON.stringify({
+      type: 'save_result',
+      success: true,
+      message: 'Game saved successfully'
+    }));
+    
+    log('SAVE_GAME', { clientId, saveId });
+  } catch(e) {
+    client.ws.send(JSON.stringify({
+      type: 'save_result',
+      success: false,
+      message: 'Save failed'
+    }));
+    log('ERROR', { action: 'SAVE_GAME', error: e.message });
+  }
+}
+
+async function handleLoadGame(clientId, data) {
+  const client = clients.get(clientId);
+  if (!client || !db) return;
+  
+  const { saveId } = data;
+  
+  try {
+    const save = await db.collection('saves').findOne({ saveId });
+    
+    if (save) {
+      client.ws.send(JSON.stringify({
+        type: 'load_result',
+        success: true,
+        data: save.data
+      }));
+      log('LOAD_GAME', { clientId, saveId });
+    } else {
+      client.ws.send(JSON.stringify({
+        type: 'load_result',
+        success: false,
+        message: 'Save ID not found'
+      }));
+    }
+  } catch(e) {
+    client.ws.send(JSON.stringify({
+      type: 'load_result',
+      success: false,
+      message: 'Load failed'
+    }));
+    log('ERROR', { action: 'LOAD_GAME', error: e.message });
+  }
+}
+
+async function handleUpdateElo(clientId, data) {
+  const client = clients.get(clientId);
+  if (!client || !db) return;
+  
+  const { username, elo } = data;
+  
+  try {
+    await db.collection('leaderboard').updateOne(
+      { username },
+      { $set: { username, elo, lastUpdated: Date.now() } },
+      { upsert: true }
+    );
+    
+    log('UPDATE_ELO', { username, elo });
+  } catch(e) {
+    log('ERROR', { action: 'UPDATE_ELO', error: e.message });
+  }
+}
+
+async function handleGetLeaderboard(clientId) {
+  const client = clients.get(clientId);
+  if (!client || !db) return;
+  
+  try {
+    const top = await db.collection('leaderboard')
+      .find({})
+      .sort({ elo: -1 })
+      .limit(50)
+      .toArray();
+    
+    client.ws.send(JSON.stringify({
+      type: 'leaderboard_data',
+      leaderboard: top
+    }));
+  } catch(e) {
+    log('ERROR', { action: 'GET_LEADERBOARD', error: e.message });
+  }
 }
 function handleDisconnect(clientId) {
   const client = clients.get(clientId);
