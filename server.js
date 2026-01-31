@@ -73,7 +73,6 @@ const wss = new WebSocket.Server({ server });
 // Store connections
 const clients = new Map();
 const rooms = new Map();
-const chatHistory = new Map();
 const queuedPlayers = new Map();
 
 // Track last logged actions to prevent spam
@@ -280,10 +279,10 @@ async function handleJoin(clientId, data) {  // ← Add 'async'
   client.status = status || 'player';
   client.lastHeartbeat = Date.now();
   
-  // Add to room
+
+  
   if (!rooms.has(room)) {
     rooms.set(room, new Set());
-    chatHistory.set(room, []);
   }
   rooms.get(room).add(clientId);
   
@@ -342,7 +341,6 @@ function handleLeave(clientId) {
     // Delete room if empty
     if (rooms.get(room).size === 0) {
       rooms.delete(room);
-      chatHistory.delete(room);
     } else {
       // Notify others
       broadcast(room, {
