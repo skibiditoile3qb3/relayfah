@@ -253,9 +253,10 @@ function handleMessage(clientId, data) {
   }
 }
 
-async function handleJoin(clientId, data) {  // ← Add 'async'
+async function handleJoin(clientId, data) {  
   const client = clients.get(clientId);
   const { room, username, status } = data;
+  console.log('🎯 JOIN REQUEST:', { clientId, room, username, status });
   
   if (!room) {
     client.ws.send(JSON.stringify({
@@ -307,17 +308,20 @@ async function handleJoin(clientId, data) {  // ← Add 'async'
         status: c.status
       };
     });
-  
-  // ✅ Load chat history from database
+   console.log('📜 Loading chat history for room:', room);
   const dbHistory = await loadChatHistory(room);
+    console.log('📜 Loaded messages:', dbHistory.length); // ← ADD THIS
+  console.log('📜 Sample message:', dbHistory[0]); // ← ADD THIS
   
-  // Send join confirmation to client
+  console.log('📤 Sending joined event to client'); // ← ADD THIS
+  
   client.ws.send(JSON.stringify({
     type: 'joined',
     room,
     players,
-    chatHistory: dbHistory  // ← Send DB history instead of in-memory
+    chatHistory: dbHistory  
   }));
+  console.log('✅ Joined event sent!');
   
   // Notify others in room
   broadcast(room, {
