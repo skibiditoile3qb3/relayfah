@@ -15,6 +15,51 @@ async function connectDB() {
     console.error('MongoDBAtlas connection failed:', e);
   }
 }
+async function saveMessage(room, message) {
+  if (!db) return;
+  
+  try {
+    await db.collection('chat_history').insertOne({
+      room: room,
+      message: message,
+      timestamp: Date.now()
+    });
+    
+    // Keep only last 20 messages per room
+    const allMessages = await db.collection('chat_history')
+      .find({ room: room })
+      .sort({ timestamp: -1 })
+      .toArray();
+    
+    if (allMessages.length > 20) {
+      const messagesToDelete = allMessages.slice(20);
+      const idsToDelete = messagesToDelete.map(msg => msg._id);
+      
+      await db.collection('chat_history').deleteMany({
+        _id: { $in: idsToDelete }
+      });
+    }
+  } catch(e) {
+    console.error('Error saving message:', e);
+  }
+}
+
+async function loadChatHistory(room) {
+  if (!db) return [];
+  
+  try {
+    const messages = await db.collection('chat_history')
+      .find({ room: room })
+      .sort({ timestamp: 1 }) // Oldest first
+      .limit(20)
+      .toArray();
+    
+    return messages.map(msg => msg.message);
+  } catch(e) {
+    console.error('Error loading chat history:', e);
+    return [];
+  }
+}
 connectDB();
 
 const PORT = process.env.PORT || 8080;
@@ -200,7 +245,7 @@ function handleMessage(clientId, data) {
   }
 }
 
-function handleJoin(clientId, data) {
+async function handleJoin(clientId, data) {  // ← Add 'async'
   const client = clients.get(clientId);
   const { room, username, status } = data;
   
@@ -255,12 +300,15 @@ function handleJoin(clientId, data) {
       };
     });
   
+  // ✅ Load chat history from database
+  const dbHistory = await loadChatHistory(room);
+  
   // Send join confirmation to client
   client.ws.send(JSON.stringify({
     type: 'joined',
     room,
     players,
-    chatHistory: chatHistory.get(room).slice(-50)
+    chatHistory: dbHistory  // ← Send DB history instead of in-memory
   }));
   
   // Notify others in room
@@ -273,7 +321,6 @@ function handleJoin(clientId, data) {
     }
   }, clientId);
   
-  // Send initial player count to everyone
   broadcast(room, {
     type: 'players_update',
     players
@@ -327,7 +374,7 @@ function handleLeave(clientId) {
   client.room = null;
 }
 
-function handleChat(clientId, data) {
+async function handleChat(clientId, data) {  // ← Add 'async'
   const client = clients.get(clientId);
   if (!client || !client.room) return;
   
@@ -357,12 +404,8 @@ function handleChat(clientId, data) {
     ip: client.ip
   };
   
-  // Store in history
-  const history = chatHistory.get(client.room);
-  history.push(chatMessage);
-  if (history.length > 100) {
-    history.shift();
-  }
+  // ✅ Save to database (with IP for logs)
+  await saveMessage(client.room, chatMessage);
   
   // Log with IP
   log('CHAT', { 
@@ -386,7 +429,6 @@ function handleChat(clientId, data) {
     }
   });
 }
-
 function handleGameState(clientId, data) {
   const client = clients.get(clientId);
   if (!client || !client.room) return;
