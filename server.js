@@ -54,7 +54,16 @@ async function loadChatHistory(room) {
       .limit(20)
       .toArray();
     
-    return messages.map(msg => msg.message);
+    return messages.map(msg => ({
+      id: msg.message.id,
+      username: msg.message.username,
+      status: msg.message.status,
+      nametag: msg.message.nametag || 'none',
+      clientId: msg.message.clientId,
+      message: msg.message.message,
+      timestamp: msg.message.timestamp
+      // Note: IP is NOT included here for privacy
+    }));
   } catch(e) {
     console.error('Error loading chat history:', e);
     return [];
