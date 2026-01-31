@@ -1,40 +1,10 @@
 const WebSocket = require('ws');
 const http = require('http');
 const url = require('url');
-const { MongoClient } = require('mongodb');
-const bcrypt = require('bcrypt');
 
 const PORT = process.env.PORT || 8080;
-const MONGO_URI = process.env.MONGO_URI;
 
-let db;
-let usersCollection;
-let sessionsCollection;
-
-async function initDB() {
-  try {
-    const client = new MongoClient(MONGO_URI);
-    await client.connect();
-    
-    db = client.db('skibiditoile3qb_db');
-    usersCollection = db.collection('users');
-    sessionsCollection = db.collection('sessions');
-    
-
-    await usersCollection.createIndex({ userId: 1 }, { unique: true });
-    await usersCollection.createIndex({ email: 1 }, { unique: true });
-    await sessionsCollection.createIndex({ token: 1 }, { unique: true });
-    await sessionsCollection.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 });
-    
-    console.log('✅ MongoDB connected');
-  } catch (error) {
-    console.error('❌ MongoDB failed:', error);
-    process.exit(1);
-  }
-}
-
-initDB().catch(console.error);
-
+// Create HTTP server
 const server = http.createServer();
 
 // Create WebSocket server
@@ -156,7 +126,7 @@ function handleMessage(clientId, data) {
       handleLeave(clientId);
       break;
       
-      case 'chat':
+    case 'chat':
       handleChat(clientId, data);
       break;
 
@@ -164,20 +134,8 @@ function handleMessage(clientId, data) {
       handlePasswordCheck(clientId, data);
       break;
       
-      case 'create_account':
-      handleCreateAccount(clientId, data);
-      break;
-      
-    case 'login':
-      handleLogin(clientId, data);
-      break;
-      
-    case 'verify_session':
-      handleVerifySession(clientId, data);
-      break;
-      
-    case 'sync_to_cloud':
-      handleSyncToCloud(clientId, data);
+    case 'check_owner_password':  // ADDED
+      handleOwnerPasswordCheck(clientId, data);
       break;
       
     case 'game_state':
@@ -973,205 +931,7 @@ server.listen(PORT, () => {
   console.log(`ws://localhost:${PORT}`);
 });
 
-async function handleCreateAccount(clientId, data) {
-  const client = clients.get(clientId);
-  const { email, password, localStorageData } = data;
-  
-  try {
-    // Check if email exists
-    const existing = await usersCollection.findOne({ email });
-    if (existing) {
-      client.ws.send(JSON.stringify({
-        type: 'account_result',
-        success: false,
-        message: 'Email already registered'
-      }));
-      return;
-    }
-    
-    // Hash password
-    const hashedPassword = await bcrypt.hash(password, 10);
-    
-    // Generate userId
-    const userId = generateId() + generateId();
-    
-    // Save localStorage backup to cloud
-    const newUser = {
-      userId,
-      email,
-      password: hashedPassword,
-      createdAt: Date.now(),
-      localStorageBackup: localStorageData // Full localStorage backup
-    };
-    
-    await usersCollection.insertOne(newUser);
-    
-    // Create session
-    const sessionToken = generateId() + generateId() + generateId() + generateId();
-    const session = {
-      userId,
-      token: sessionToken,
-      createdAt: Date.now(),
-      expiresAt: Date.now() + (7 * 24 * 60 * 60 * 1000)
-    };
-    
-    await sessionsCollection.insertOne(session);
-    
-    client.ws.send(JSON.stringify({
-      type: 'account_result',
-      success: true,
-      sessionToken,
-      email,
-      message: 'Account created! Your progress is backed up to the cloud.'
-    }));
-    
-    log('CREATE_ACCOUNT', { userId, email });
-    
-  } catch (error) {
-    console.error('Create account error:', error);
-    client.ws.send(JSON.stringify({
-      type: 'account_result',
-      success: false,
-      message: 'Account creation failed'
-    }));
-  }
-}
-
-async function handleLogin(clientId, data) {
-  const client = clients.get(clientId);
-  const { email, password } = data;
-  
-  try {
-    // Find user
-    const user = await usersCollection.findOne({ email });
-    if (!user) {
-      client.ws.send(JSON.stringify({
-        type: 'login_result',
-        success: false,
-        message: 'Invalid email or password'
-      }));
-      return;
-    }
-    
-    // Check password
-    const match = await bcrypt.compare(password, user.password);
-    if (!match) {
-      client.ws.send(JSON.stringify({
-        type: 'login_result',
-        success: false,
-        message: 'Invalid email or password'
-      }));
-      return;
-    }
-    
-    // Create session
-    const sessionToken = generateId() + generateId() + generateId() + generateId();
-    const session = {
-      userId: user.userId,
-      token: sessionToken,
-      createdAt: Date.now(),
-      expiresAt: Date.now() + (7 * 24 * 60 * 60 * 1000)
-    };
-    
-    await sessionsCollection.insertOne(session);
-    
-    client.ws.send(JSON.stringify({
-      type: 'login_result',
-      success: true,
-      sessionToken,
-      email: user.email,
-      localStorageData: user.localStorageBackup // Send cloud backup to restore
-    }));
-    
-    log('LOGIN', { userId: user.userId, email });
-    
-  } catch (error) {
-    console.error('Login error:', error);
-    client.ws.send(JSON.stringify({
-      type: 'login_result',
-      success: false,
-      message: 'Login failed'
-    }));
-  }
-}
-
-async function handleVerifySession(clientId, data) {
-  const client = clients.get(clientId);
-  const { sessionToken } = data;
-  
-  try {
-    const session = await sessionsCollection.findOne({ token: sessionToken });
-    
-    if (!session || session.expiresAt < Date.now()) {
-      if (session) {
-        await sessionsCollection.deleteOne({ token: sessionToken });
-      }
-      
-      client.ws.send(JSON.stringify({
-        type: 'session_result',
-        valid: false
-      }));
-      return;
-    }
-    
-    // Extend session (sliding window)
-    await sessionsCollection.updateOne(
-      { token: sessionToken },
-      { $set: { expiresAt: Date.now() + (7 * 24 * 60 * 60 * 1000) } }
-    );
-    
-    const user = await usersCollection.findOne({ userId: session.userId });
-    
-    client.ws.send(JSON.stringify({
-      type: 'session_result',
-      valid: true,
-      email: user.email,
-      localStorageData: user.localStorageBackup // Send cloud backup
-    }));
-    
-    log('VERIFY_SESSION', { userId: session.userId });
-    
-  } catch (error) {
-    console.error('Verify session error:', error);
-    client.ws.send(JSON.stringify({
-      type: 'session_result',
-      valid: false
-    }));
-  }
-}
-
-async function handleSyncToCloud(clientId, data) {
-  const client = clients.get(clientId);
-  const { sessionToken, localStorageData } = data;
-  
-  try {
-    const session = await sessionsCollection.findOne({ token: sessionToken });
-    
-    if (!session || session.expiresAt < Date.now()) {
-      return; // Silently fail, user will re-login
-    }
-    
-    // Upload localStorage backup to cloud
-    await usersCollection.updateOne(
-      { userId: session.userId },
-      { 
-        $set: { 
-          localStorageBackup: localStorageData,
-          lastSyncedAt: Date.now()
-        } 
-      }
-    );
-    
- 
-    await sessionsCollection.updateOne(
-      { token: sessionToken },
-      { $set: { expiresAt: Date.now() + (7 * 24 * 60 * 60 * 1000) } }
-    );
-    
-  } catch (error) {
-    console.error('Sync error:', error);
-  }
-}
+// Graceful shutdown
 process.on('SIGTERM', () => {
   console.log('SIGTERM received, closing server...');
   wss.close(() => {
