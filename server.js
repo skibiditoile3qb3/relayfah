@@ -644,21 +644,28 @@ async function handleUpdateElo(clientId, data) {
   const client = clients.get(clientId);
   if (!client || !db) return;
   
-  const { username, elo } = data;
+  const { username, elo, userId } = data; 
   
   try {
+   
     await db.collection('leaderboard').updateOne(
-      { username },
-      { $set: { username, elo, lastUpdated: Date.now() } },
+      { userId: userId }, 
+      { 
+        $set: { 
+          userId: userId,       
+          username: username,   
+          elo: elo, 
+          lastUpdated: Date.now() 
+        } 
+      },
       { upsert: true }
     );
     
-    log('UPDATE_ELO', { username, elo });
+    log('UPDATE_ELO', { userId, username, elo });
   } catch(e) {
     log('ERROR', { action: 'UPDATE_ELO', error: e.message });
   }
 }
-
 async function handleGetLeaderboard(clientId) {
   const client = clients.get(clientId);
   if (!client || !db) return;
