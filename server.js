@@ -295,10 +295,14 @@ async function handleJoin(clientId, data) {
   }
   
   client.room = room;
-  client.username = username || `Player${clientId.substring(0, 6)}`;
-  client.status = status || 'player';
-  client.permanentId = data.permanentId || null;
-  client.lastHeartbeat = Date.now();
+client.username = username || `Player${clientId.substring(0, 6)}`;
+client.status = status || 'player';
+client.permanentId = data.permanentId || null;
+client.lastHeartbeat = Date.now();
+client.gladiatorCosmetics = data.gladiatorCosmetics || {  // ADD THIS
+  icon: '⚔️',
+  slashColor: '#ffffff'
+};
   
 
   
@@ -310,15 +314,16 @@ async function handleJoin(clientId, data) {
   log('JOIN', { clientId, username: client.username, room, status: client.status });
   
   // Get room players
-  const players = Array.from(rooms.get(room))
-    .map(id => {
-      const c = clients.get(id);
-      return {
-        id: c.id,
-        username: c.username,
-        status: c.status
-      };
-    });
+const players = Array.from(rooms.get(room))
+  .map(id => {
+    const c = clients.get(id);
+    return {
+      id: c.id,
+      username: c.username,
+      status: c.status,
+      gladiatorCosmetics: c.gladiatorCosmetics || { icon: '⚔️', slashColor: '#ffffff' }  
+    };
+  });
    console.log('📜 Loading chat history for room:', room);
   const dbHistory = await loadChatHistory(room);
     console.log('📜 Loaded messages:', dbHistory.length); // ← ADD THIS
@@ -376,15 +381,16 @@ function handleLeave(clientId) {
       });
       
       // Update player count
-      const players = Array.from(rooms.get(room))
-        .map(id => {
-          const c = clients.get(id);
-          return {
-            id: c.id,
-            username: c.username,
-            status: c.status
-          };
-        });
+const players = Array.from(rooms.get(room))
+  .map(id => {
+    const c = clients.get(id);
+    return {
+      id: c.id,
+      username: c.username,
+      status: c.status,
+      gladiatorCosmetics: c.gladiatorCosmetics || { icon: '⚔️', slashColor: '#ffffff' }  // ADD THIS
+    };
+  });
       
       broadcast(room, {
         type: 'players_update',
@@ -499,14 +505,15 @@ function handleHeartbeat(clientId, data) {  // Add data parameter
   if (!rooms.has(room)) return;
   
   const players = Array.from(rooms.get(room))
-    .map(id => {
-      const c = clients.get(id);
-      return {
-        id: c.id,
-        username: c.username,
-        status: c.status
-      };
-    });
+  .map(id => {
+    const c = clients.get(id);
+    return {
+      id: c.id,
+      username: c.username,
+      status: c.status,
+      gladiatorCosmetics: c.gladiatorCosmetics || { icon: '⚔️', slashColor: '#ffffff' }  // ADD THIS
+    };
+  });
   
   broadcast(room, {
     type: 'players_update',
@@ -566,15 +573,16 @@ function handleGetPlayers(clientId) {
   
   if (!rooms.has(room)) return;
   
-  const players = Array.from(rooms.get(room))
-    .map(id => {
-      const c = clients.get(id);
-      return {
-        id: c.id,
-        username: c.username,
-        status: c.status
-      };
-    });
+const players = Array.from(rooms.get(room))
+  .map(id => {
+    const c = clients.get(id);
+    return {
+      id: c.id,
+      username: c.username,
+      status: c.status,
+      gladiatorCosmetics: c.gladiatorCosmetics || { icon: '⚔️', slashColor: '#ffffff' }  // ADD THIS
+    };
+  });
   
   client.ws.send(JSON.stringify({
     type: 'players_update',
