@@ -709,7 +709,7 @@ async function handleGetCoinsLeaderboard(clientId) {
     const top = await db.collection('coins_leaderboard')
       .find({})
       .sort({ coins: -1 })
-      .limit(100)
+      .limit(10)
       .toArray();
     
     client.ws.send(JSON.stringify({
