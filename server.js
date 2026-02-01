@@ -244,7 +244,14 @@ function handleMessage(clientId, data) {
     case 'get_leaderboard':
       handleGetLeaderboard(clientId);
       break;
-      
+    case 'update_coins':  
+      handleUpdateCoins(clientId, data);
+      break;
+
+  case 'get_coins_leaderboard':  
+    handleGetCoinsLeaderboard(clientId);
+    break;
+ 
     default:
       client.ws.send(JSON.stringify({
         type: 'error',
@@ -664,6 +671,53 @@ async function handleUpdateElo(clientId, data) {
     log('UPDATE_ELO', { userId, username, elo });
   } catch(e) {
     log('ERROR', { action: 'UPDATE_ELO', error: e.message });
+  }
+}
+
+async function handleUpdateCoins(clientId, data) {
+  const client = clients.get(clientId);
+  if (!client || !db) return;
+  
+  const { username, coins, userId } = data;
+  
+  try {
+    await db.collection('coins_leaderboard').updateOne(
+      { userId: userId },
+      {
+        $set: {
+          userId: userId,
+          username: username,
+          coins: coins,
+          lastUpdated: Date.now()
+        }
+      },
+      { upsert: true }
+    );
+    
+    log('UPDATE_COINS', { userId, username, coins });
+  } catch(e) {
+    log('ERROR', { action: 'UPDATE_COINS', error: e.message });
+  }
+}
+
+
+async function handleGetCoinsLeaderboard(clientId) {
+  const client = clients.get(clientId);
+  if (!client || !db) return;
+  
+  try {
+    const top = await db.collection('coins_leaderboard')
+      .find({})
+      .sort({ coins: -1 })
+      .limit(100)
+      .toArray();
+    
+    client.ws.send(JSON.stringify({
+      type: 'coins_leaderboard_data',
+      leaderboard: top
+    }));
+  } catch(e) {
+    log('ERROR', { action: 'GET_COINS_LEADERBOARD', error: e.message });
   }
 }
 async function handleGetLeaderboard(clientId) {
