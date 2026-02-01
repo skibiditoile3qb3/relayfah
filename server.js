@@ -251,6 +251,10 @@ function handleMessage(clientId, data) {
   case 'get_coins_leaderboard':  
     handleGetCoinsLeaderboard(clientId);
     break;
+      
+   case 'admin_action':
+    handleAdminAction(clientId, data);
+    break;
  
     default:
       client.ws.send(JSON.stringify({
