@@ -294,10 +294,10 @@ async function handleJoin(clientId, data) {
     handleLeave(clientId);
   }
   
-  // Update client data
   client.room = room;
   client.username = username || `Player${clientId.substring(0, 6)}`;
   client.status = status || 'player';
+  client.permanentId = data.permanentId || null;
   client.lastHeartbeat = Date.now();
   
 
@@ -518,9 +518,26 @@ function handleDonation(clientId, data) {
   const client = clients.get(clientId);
   if (!client || !client.room) return;
   
-  const { targetUsername, amount, donationType, from, senderStatus } = data;
-  
-  log('DONATION', { 
+ const { targetUsername, amount, donationType, from, senderStatus, senderPermanentId } = data;
+
+  let targetClient = null;
+  for (const [id, c] of clients.entries()) {
+    if (c.username === targetUsername && c.room === client.room) {
+      targetClient = c;
+      break;
+    }
+  }
+
+  if (targetClient && senderPermanentId && targetClient.permanentId && senderPermanentId === targetClient.permanentId) {
+    client.ws.send(JSON.stringify({
+      type: 'error',
+      message: 'Cannot donate to yourself'
+    }));
+    log('DONATION_BLOCKED', { reason: 'same_permanentId', from: client.username, to: targetUsername });
+    return;
+  }
+
+  log('DONATION', {
     room: client.room, 
     from, 
     to: targetUsername, 
