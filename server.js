@@ -83,6 +83,10 @@ const wss = new WebSocket.Server({ server });
 const clients = new Map();
 const rooms = new Map();
 const queuedPlayers = new Map();
+const BANNED_IPS = new Set([
+  '68.103.231.240'
+  // Add more IPs here as needed
+]);
 
 // Track last logged actions to prevent spam
 const lastLoggedActions = new Map();
@@ -267,6 +271,19 @@ function handleMessage(clientId, data) {
 async function handleJoin(clientId, data) {  
   const client = clients.get(clientId);
   const { room, username, status } = data;
+    if (BANNED_IPS.has(client.ip)) {
+    client.ws.send(JSON.stringify({
+      type: 'error',
+      message: 'Connection error. Please try again later.'
+    }));
+    setTimeout(() => {
+      if (client.ws.readyState === WebSocket.OPEN) {
+        client.ws.close();
+      }
+    }, 2000);
+    log('SILENT_IP_BAN', { ip: client.ip, username });
+    return;
+  }
   console.log('🎯 JOIN REQUEST:', { clientId, room, username, status });
   
   if (!room) {
