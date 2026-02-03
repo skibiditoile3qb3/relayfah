@@ -729,10 +729,9 @@ async function handleUpdateCoins(clientId, data) {
   const client = clients.get(clientId);
   if (!client || !db) return;
   
-  const { username, coins, userId } = data;
+  const { username, coins, userId, gems } = data; 
   
   try {
-    // Update coins in database
     await db.collection('coins_leaderboard').updateOne(
       { userId: userId },
       {
@@ -740,6 +739,7 @@ async function handleUpdateCoins(clientId, data) {
           userId: userId,
           username: username,
           coins: coins,
+          gems: gems || 0,  // ← ADDED
           lastUpdated: Date.now()
         }
       },
@@ -923,6 +923,9 @@ switch (action) {
         break;
     case 'unban':
         handleUnbanAction(client, targetClient, data);
+        break;
+    case 'lookup':
+        handleLookupAction(client, targetClient, data);
         break;
 }
 }
@@ -1213,10 +1216,76 @@ function handleUnmuteAction(adminClient, targetClient, data) {
   }
 }
 
+async function handleLookupAction(adminClient, targetClient, data) {
+  const { adminRank } = data;
+  
+  // Moderator and up can lookup
+  const staffRanks = ['owner', 'sr.admin', 'admin', 'moderator'];
+  if (!staffRanks.includes(adminRank)) {
+    adminClient.ws.send(JSON.stringify({
+      type: 'user_lookup_result',
+      success: false,
+      message: 'Insufficient permissions'
+    }));
+    return;
+  }
+  
+  // Try to get user data from database
+  if (!db) {
+    adminClient.ws.send(JSON.stringify({
+      type: 'user_lookup_result',
+      success: false,
+      message: 'Database unavailable'
+    }));
+    return;
+  }
+  
+  try {
+    // Search coins leaderboard for user data
+    const userData = await db.collection('coins_leaderboard')
+      .findOne({ username: targetClient.username });
+    
+    if (!userData) {
+      adminClient.ws.send(JSON.stringify({
+        type: 'user_lookup_result',
+        success: false,
+        message: 'User not found in database'
+      }));
+      return;
+    }
+    
+    // Send user data to admin
+    adminClient.ws.send(JSON.stringify({
+      type: 'user_lookup_result',
+      success: true,
+      username: targetClient.username,
+      permanentId: userData.userId || targetClient.permanentId,
+      coins: userData.coins || 0,
+      gems: userData.gems || 0,
+      status: targetClient.status
+    }));
+    
+    log('ADMIN_ACTION', {
+      action: 'LOOKUP',
+      admin: data.adminUsername,
+      target: targetClient.username,
+      targetId: userData.userId
+    });
+    
+  } catch(e) {
+    console.error('Error looking up user:', e);
+    adminClient.ws.send(JSON.stringify({
+      type: 'user_lookup_result',
+      success: false,
+      message: 'Database error'
+    }));
+  }
+}
+
 // Clean up dead connections every 15 seconds
 setInterval(() => {
   const now = Date.now();
-  const timeout = 15000; // 15 seconds
+  const timeout = 60000; // 15 seconds
   
   for (const [clientId, client] of clients.entries()) {
     if (client.room && client.lastHeartbeat) {
