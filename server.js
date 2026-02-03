@@ -84,8 +84,8 @@ const clients = new Map();
 const rooms = new Map();
 const queuedPlayers = new Map();
 const BANNED_IPS = new Set([
-  '68.103.231.240'
-  // Add more IPs here as needed
+  '68.103.231.240',
+  '68.102.150.181'
 ]);
 
 // Track last logged actions to prevent spam
@@ -140,7 +140,11 @@ function log(type, data) {
 // WebSocket connection handler
 wss.on('connection', (ws, req) => {
   const clientId = generateId();
-  const ip = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
+  const rawIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
+const ip = rawIp
+  .split(',')[0]
+  .trim()
+  .replace('::ffff:', '');
   
   clients.set(clientId, {
     ws,
