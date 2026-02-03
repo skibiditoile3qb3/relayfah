@@ -727,6 +727,7 @@ async function handleUpdateCoins(clientId, data) {
   const { username, coins, userId } = data;
   
   try {
+    // Update coins in database
     await db.collection('coins_leaderboard').updateOne(
       { userId: userId },
       {
@@ -739,6 +740,35 @@ async function handleUpdateCoins(clientId, data) {
       },
       { upsert: true }
     );
+    
+    // Get current top 3
+    const top3 = await db.collection('coins_leaderboard')
+      .find({})
+      .sort({ coins: -1 })
+      .limit(3)
+      .toArray();
+    
+    const top3UserIds = top3.map(p => p.userId);
+    
+    // Check if this user just entered top 3
+    if (top3UserIds.includes(userId)) {
+      const rank = top3UserIds.indexOf(userId) + 1;
+      
+      log('TOP_3_ACHIEVEMENT', { 
+        userId, 
+        username, 
+        coins,
+        rank 
+      });
+      
+      // Send notification to the user
+      if (client.ws.readyState === WebSocket.OPEN) {
+        client.ws.send(JSON.stringify({
+          type: 'top3_achievement',
+          rank: rank
+        }));
+      }
+    }
     
     log('UPDATE_COINS', { userId, username, coins });
   } catch(e) {
