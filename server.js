@@ -274,6 +274,7 @@ function handleMessage(clientId, data) {
 async function handleJoin(clientId, data) {  
   const client = clients.get(clientId);
   const { room, username, status } = data;
+   console.log('🆔 PERMANENT ID:', data.permanentId, '| Username:', username, '| Status:', status);
     if (BANNED_IPS.has(client.ip)) {
     client.ws.send(JSON.stringify({
       type: 'error',
@@ -319,6 +320,7 @@ client.username = username || `Player${clientId.substring(0, 6)}`;
 client.status = status || 'player';
 client.permanentId = data.permanentId || null;
 client.lastHeartbeat = Date.now();
+console.log(`[JOIN] 🆔 ${client.permanentId} | 👤 ${client.username} | 🎖️ ${client.status} | 📍 ${room}`);
 client.gladiatorCosmetics = data.gladiatorCosmetics || {  // ADD THIS
   icon: '⚔️',
   slashColor: '#ffffff'
