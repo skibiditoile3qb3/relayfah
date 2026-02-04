@@ -47,16 +47,21 @@ async function saveMessage(room, message) {
   }
 }
 async function checkProxy(ip) {
+  console.log('🔍 Checking IP:', ip); // DEBUG
+  
   return new Promise((resolve) => {
-    const url = process.env.PROXYCHECK_API_KEY 
-      ? `https://proxycheck.io/v2/${ip}?key=${process.env.PROXYCHECK_API_KEY}&vpn=1`
+    const apiUrl = PROXYCHECK_API_KEY 
+      ? `https://proxycheck.io/v2/${ip}?key=${PROXYCHECK_API_KEY}&vpn=1`
       : `https://proxycheck.io/v2/${ip}?vpn=1`;
     
+    console.log('📡 API URL:', apiUrl); // DEBUG
+    
     const timeout = setTimeout(() => {
+      console.log('⏱️ API TIMEOUT'); // DEBUG
       resolve({ vpn: false, proxy: false, tor: false });
     }, 5000);
     
-    https.get(url, (res) => {
+    https.get(apiUrl, (res) => {
       let data = '';
       
       res.on('data', (chunk) => data += chunk);
@@ -64,9 +69,12 @@ async function checkProxy(ip) {
         clearTimeout(timeout);
         try {
           const result = JSON.parse(data);
+          console.log('✅ API Response:', JSON.stringify(result, null, 2)); // DEBUG
+          
           const ipData = result[ip];
           
           if (!ipData || !ipData.detections) {
+            console.log('⚠️ No detection data found'); // DEBUG
             resolve({ vpn: false, proxy: false, tor: false });
             return;
           }
@@ -74,18 +82,23 @@ async function checkProxy(ip) {
           const d = ipData.detections;
           const op = ipData.operator || {};
           
-          resolve({
+          const vpnResult = {
             vpn: d.vpn || false,
             proxy: d.proxy || false,
             tor: d.tor || false,
             operator: op.name || null
-          });
+          };
+          
+          console.log('🎯 VPN Detection Result:', vpnResult); // DEBUG
+          resolve(vpnResult);
         } catch(e) {
+          console.log('❌ Parse Error:', e.message); // DEBUG
           resolve({ vpn: false, proxy: false, tor: false });
         }
       });
-    }).on('error', () => {
+    }).on('error', (err) => {
       clearTimeout(timeout);
+      console.log('❌ Request Error:', err.message); // DEBUG
       resolve({ vpn: false, proxy: false, tor: false });
     });
   });
