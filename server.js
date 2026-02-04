@@ -47,17 +47,17 @@ async function saveMessage(room, message) {
   }
 }
 async function checkProxy(ip) {
-  console.log('🔍 Checking IP:', ip); // DEBUG
+  console.log('🔍 Checking IP:', ip);
   
   return new Promise((resolve) => {
     const apiUrl = PROXYCHECK_API_KEY 
       ? `https://proxycheck.io/v2/${ip}?key=${PROXYCHECK_API_KEY}&vpn=1`
       : `https://proxycheck.io/v2/${ip}?vpn=1`;
     
-    console.log('📡 API URL:', apiUrl); // DEBUG
+    console.log('📡 API URL:', apiUrl);
     
     const timeout = setTimeout(() => {
-      console.log('⏱️ API TIMEOUT'); // DEBUG
+      console.log('⏱️ API TIMEOUT');
       resolve({ vpn: false, proxy: false, tor: false });
     }, 5000);
     
@@ -69,36 +69,39 @@ async function checkProxy(ip) {
         clearTimeout(timeout);
         try {
           const result = JSON.parse(data);
-          console.log('✅ API Response:', JSON.stringify(result, null, 2)); // DEBUG
+          console.log('✅ API Response:', JSON.stringify(result, null, 2));
           
           const ipData = result[ip];
           
-          if (!ipData || !ipData.detections) {
-            console.log('⚠️ No detection data found'); // DEBUG
+          if (!ipData) {
+            console.log('⚠️ No IP data found');
             resolve({ vpn: false, proxy: false, tor: false });
             return;
           }
           
-          const d = ipData.detections;
+          // ✅ FIX: Check for string "yes" instead of detections object
+          const isProxy = ipData.proxy === 'yes';
+          const isVPN = ipData.type === 'VPN';
+          const isTor = ipData.type === 'TOR';
           const op = ipData.operator || {};
           
           const vpnResult = {
-            vpn: d.vpn || false,
-            proxy: d.proxy || false,
-            tor: d.tor || false,
+            vpn: isVPN,
+            proxy: isProxy,
+            tor: isTor,
             operator: op.name || null
           };
           
-          console.log('🎯 VPN Detection Result:', vpnResult); // DEBUG
+          console.log('🎯 VPN Detection Result:', vpnResult);
           resolve(vpnResult);
         } catch(e) {
-          console.log('❌ Parse Error:', e.message); // DEBUG
+          console.log('❌ Parse Error:', e.message);
           resolve({ vpn: false, proxy: false, tor: false });
         }
       });
     }).on('error', (err) => {
       clearTimeout(timeout);
-      console.log('❌ Request Error:', err.message); // DEBUG
+      console.log('❌ Request Error:', err.message);
       resolve({ vpn: false, proxy: false, tor: false });
     });
   });
