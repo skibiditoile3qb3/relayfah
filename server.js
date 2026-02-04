@@ -715,7 +715,6 @@ async function handleSaveGame(clientId, data) {
       message: 'Game saved successfully'
     }));
     
-    log('SAVE_GAME', { clientId, saveId });
   } catch(e) {
     client.ws.send(JSON.stringify({
       type: 'save_result',
