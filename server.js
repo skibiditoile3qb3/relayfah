@@ -342,12 +342,23 @@ async function handleJoin(clientId, data) {
   }
   
   if (client.vpnDetected) {
-    log('SILENT_VPN', { 
+    client.ws.send(JSON.stringify({
+      type: 'error',
+      message: 'Connection error. Please try again later.'
+    }));
+    setTimeout(() => {
+      if (client.ws.readyState === WebSocket.OPEN) {
+        client.ws.close();
+      }
+    }, 2000);
+    log('SILENT_VPN_BAN', { 
       ip: client.ip, 
       username,
       operator: client.vpnOperator 
     });
+    return;  // ← This kicks them out!
   }
+
   
   console.log('🎯 JOIN REQUEST:', { clientId, room, username, status });
   
