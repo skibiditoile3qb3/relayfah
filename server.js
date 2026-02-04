@@ -1,9 +1,12 @@
 const WebSocket = require('ws');
 const http = require('http');
+const https = require('https');
 const url = require('url');
 const { MongoClient } = require('mongodb');
 
 const MONGO_URI = process.env.MONGO_URI;
+const PROXYCHECK_API_KEY = process.env.PROXYCHECK_API_KEY; 
+
 let db = null;
 
 async function connectDB() {
@@ -42,6 +45,50 @@ async function saveMessage(room, message) {
   } catch(e) {
     console.error('Error saving message:', e);
   }
+}
+async function checkProxy(ip) {
+  return new Promise((resolve) => {
+    const url = process.env.PROXYCHECK_API_KEY 
+      ? `https://proxycheck.io/v2/${ip}?key=${process.env.PROXYCHECK_API_KEY}&vpn=1`
+      : `https://proxycheck.io/v2/${ip}?vpn=1`;
+    
+    const timeout = setTimeout(() => {
+      resolve({ vpn: false, proxy: false, tor: false });
+    }, 5000);
+    
+    https.get(url, (res) => {
+      let data = '';
+      
+      res.on('data', (chunk) => data += chunk);
+      res.on('end', () => {
+        clearTimeout(timeout);
+        try {
+          const result = JSON.parse(data);
+          const ipData = result[ip];
+          
+          if (!ipData || !ipData.detections) {
+            resolve({ vpn: false, proxy: false, tor: false });
+            return;
+          }
+          
+          const d = ipData.detections;
+          const op = ipData.operator || {};
+          
+          resolve({
+            vpn: d.vpn || false,
+            proxy: d.proxy || false,
+            tor: d.tor || false,
+            operator: op.name || null
+          });
+        } catch(e) {
+          resolve({ vpn: false, proxy: false, tor: false });
+        }
+      });
+    }).on('error', () => {
+      clearTimeout(timeout);
+      resolve({ vpn: false, proxy: false, tor: false });
+    });
+  });
 }
 
 async function loadChatHistory(room) {
@@ -132,18 +179,19 @@ function log(type, data) {
     }
   }
   
-  // Just console log, don't store
+
   console.log(`[${new Date().toISOString()}] ${type}:`, data);
 }
 
-// WebSocket connection handler
-wss.on('connection', (ws, req) => {
+wss.on('connection', async (ws, req) => {
   const clientId = generateId();
   const rawIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
-const ip = rawIp
-  .split(',')[0]
-  .trim()
-  .replace('::ffff:', '');
+  const ip = rawIp
+    .split(',')[0]
+    .trim()
+    .replace('::ffff:', '');
+  
+  const vpnCheck = await checkProxy(ip);
   
   clients.set(clientId, {
     ws,
@@ -152,6 +200,8 @@ const ip = rawIp
     room: null,
     status: 'player',
     ip,
+    vpnDetected: vpnCheck.vpn || vpnCheck.proxy || vpnCheck.tor,
+    vpnOperator: vpnCheck.operator,
     connectedAt: Date.now(),
     lastHeartbeat: Date.now()
   });
@@ -274,8 +324,10 @@ function handleMessage(clientId, data) {
 async function handleJoin(clientId, data) {  
   const client = clients.get(clientId);
   const { room, username, status } = data;
-   console.log('🆔 PERMANENT ID:', data.permanentId, '| Username:', username, '| Status:', status);
-    if (BANNED_IPS.has(client.ip)) {
+  
+  console.log('🆔 PERMANENT ID:', data.permanentId, '| Username:', username, '| Status:', status);
+  
+  if (BANNED_IPS.has(client.ip)) {
     client.ws.send(JSON.stringify({
       type: 'error',
       message: 'Connection error. Please try again later.'
@@ -288,6 +340,15 @@ async function handleJoin(clientId, data) {
     log('SILENT_IP_BAN', { ip: client.ip, username });
     return;
   }
+  
+  if (client.vpnDetected) {
+    log('SILENT_VPN', { 
+      ip: client.ip, 
+      username,
+      operator: client.vpnOperator 
+    });
+  }
+  
   console.log('🎯 JOIN REQUEST:', { clientId, room, username, status });
   
   if (!room) {
