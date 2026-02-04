@@ -927,6 +927,9 @@ switch (action) {
     case 'lookup':
         handleLookupAction(client, targetClient, data);
         break;
+    case 'reset':
+        handleResetAction(client, targetClient, data);
+        break;
 }
 }
 
@@ -1278,6 +1281,61 @@ async function handleLookupAction(adminClient, targetClient, data) {
       type: 'user_lookup_result',
       success: false,
       message: 'Database error'
+    }));
+  }
+}
+async function handleResetAction(adminClient, targetClient, data) {
+  const { adminRank } = data;
+  
+  // Only Sr. Admin and Owner can reset
+  if (!['owner', 'sr.admin'].includes(adminRank)) {
+    adminClient.ws.send(JSON.stringify({
+      type: 'admin_action_result',
+      success: false,
+      message: 'Only Sr. Admins and Owner can reset users'
+    }));
+    return;
+  }
+  
+  // Send reset command to target client
+  if (targetClient.ws.readyState === WebSocket.OPEN) {
+    targetClient.ws.send(JSON.stringify({
+      type: 'admin_reset',
+      resetBy: data.adminUsername
+    }));
+  }
+  
+  // Update database
+  if (db && targetClient.permanentId) {
+    try {
+      await db.collection('coins_leaderboard').updateOne(
+        { userId: targetClient.permanentId },
+        {
+          $set: {
+            coins: 10,
+            gems: 0,
+            lastUpdated: Date.now()
+          }
+        }
+      );
+    } catch(e) {
+      console.error('Error resetting user in database:', e);
+    }
+  }
+  
+  log('ADMIN_ACTION', {
+    action: 'RESET',
+    admin: data.adminUsername,
+    target: targetClient.username,
+    targetId: targetClient.permanentId
+  });
+  
+  // Confirm to admin
+  if (adminClient.ws.readyState === WebSocket.OPEN) {
+    adminClient.ws.send(JSON.stringify({
+      type: 'admin_action_result',
+      success: true,
+      message: `${targetClient.username} has been reset (coins: 10, gems: 0)`
     }));
   }
 }
