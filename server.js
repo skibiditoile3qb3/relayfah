@@ -1336,20 +1336,18 @@ async function handleLookupAction(adminClient, targetClient, data) {
   }
   
   try {
-    // Search saves collection instead of coins leaderboard
+    // Search saves collection
     const allSaves = await db.collection('saves').find({}).toArray();
     let targetData = null;
     
     for (const save of allSaves) {
       try {
-        // Parse userProfile from saveData
         const profileString = save.data?.userProfile;
         if (!profileString) continue;
         
         const profile = JSON.parse(profileString);
         
         if (profile.username === targetUsername) {
-          // Decode coins from obfuscated storage
           const coinsKey = Buffer.from('X2NvaW5EYXRh', 'base64').toString();
           const encodedCoins = save.data?.[coinsKey];
           
@@ -1363,16 +1361,67 @@ async function handleLookupAction(adminClient, targetClient, data) {
             }
           }
           
+          const rebirthData = profile.rebirthData || {
+            tier: 0,
+            totalRebirths: 0,
+            totalGemsEarned: 0
+          };
+          
+          const nametag = profile.nametag || {
+            equipped: 'none',
+            unlocked: ['none']
+          };
+          
+          const equippedCosmetics = profile.equippedCosmetics || {
+            color: 'default',
+            hat: 'none',
+            face: 'none',
+            effect: 'none',
+            sword: 'none'
+          };
+          
+          const unlockedGamesCount = profile.unlockedGames?.length || 0;
+          
+          const totalDonated = profile.totalDonated || 0;
+          
+
+          const gladiatorElo = parseInt(save.data?.gladiator_elo || '1000');
+          
+          const totalActiveTime = parseInt(save.data?.totalActiveTime || '0');
+          const hoursPlayed = Math.floor(totalActiveTime / 3600);
+          
           targetData = {
             username: profile.username,
             permanentId: profile.permanentId || 'N/A',
             coins: coins,
             gems: profile.gems || 0,
-            status: profile.status || 'player'
+            status: profile.status || 'player',
+            
+            // Extended data
+            rebirths: rebirthData.totalRebirths,
+            rebirthTier: rebirthData.tier,
+            totalGemsEarned: rebirthData.totalGemsEarned,
+            
+            nametag: nametag.equipped,
+            unlockedNametags: nametag.unlocked.join(', '),
+            
+            equippedEffect: equippedCosmetics.effect,
+            equippedSword: equippedCosmetics.sword,
+            equippedHat: equippedCosmetics.hat,
+            equippedFace: equippedCosmetics.face,
+            equippedColor: equippedCosmetics.color,
+            
+            unlockedGamesCount: unlockedGamesCount,
+            totalDonated: totalDonated,
+            gladiatorElo: gladiatorElo,
+            hoursPlayed: hoursPlayed,
+            
+            lastUpdated: save.lastUpdated || 'Unknown'
           };
           break;
         }
       } catch(e) {
+        console.error('Error parsing save:', e);
         continue; // Skip invalid saves
       }
     }
