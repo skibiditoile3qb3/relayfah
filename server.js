@@ -979,7 +979,13 @@ function handleAdminAction(clientId, data) {
     return;
   }
   
-  // Search ALL clients, not just in admin's room
+  // Special handling for lookup - doesn't need online target
+  if (action === 'lookup') {
+    handleLookupAction(client, null, data);
+    return;
+  }
+  
+  // For all other actions, find online target
   let targetClient = null;
   for (const [id, c] of clients.entries()) {
     if (c.username === targetUsername) {
@@ -997,7 +1003,7 @@ function handleAdminAction(clientId, data) {
     return;
   }
   
-switch (action) {
+  switch (action) {
     case 'promote':
         handlePromoteAction(client, targetClient, data);
         break;
@@ -1013,13 +1019,10 @@ switch (action) {
     case 'unban':
         handleUnbanAction(client, targetClient, data);
         break;
-    case 'lookup':
-        handleLookupAction(client, targetClient, data);
-        break;
     case 'reset':
         handleResetAction(client, targetClient, data);
         break;
-}
+  }
 }
 
 function handlePromoteAction(adminClient, targetClient, data) {
@@ -1309,7 +1312,7 @@ function handleUnmuteAction(adminClient, targetClient, data) {
 }
 
 async function handleLookupAction(adminClient, targetClient, data) {
-  const { adminRank } = data;
+  const { adminRank, targetUsername } = data;
   
   // Moderator and up can lookup
   const staffRanks = ['owner', 'sr.admin', 'admin', 'moderator'];
@@ -1322,7 +1325,7 @@ async function handleLookupAction(adminClient, targetClient, data) {
     return;
   }
   
-  // Try to get user data from database
+  // Database check
   if (!db) {
     adminClient.ws.send(JSON.stringify({
       type: 'user_lookup_result',
@@ -1333,15 +1336,52 @@ async function handleLookupAction(adminClient, targetClient, data) {
   }
   
   try {
-    // Search coins leaderboard for user data
-    const userData = await db.collection('coins_leaderboard')
-      .findOne({ username: targetClient.username });
+    // Search saves collection instead of coins leaderboard
+    const allSaves = await db.collection('saves').find({}).toArray();
+    let targetData = null;
     
-    if (!userData) {
+    for (const save of allSaves) {
+      try {
+        // Parse userProfile from saveData
+        const profileString = save.data?.userProfile;
+        if (!profileString) continue;
+        
+        const profile = JSON.parse(profileString);
+        
+        if (profile.username === targetUsername) {
+          // Decode coins from obfuscated storage
+          const coinsKey = Buffer.from('X2NvaW5EYXRh', 'base64').toString();
+          const encodedCoins = save.data?.[coinsKey];
+          
+          let coins = 10; // default
+          if (encodedCoins) {
+            try {
+              const decodedCoins = Buffer.from(encodedCoins.split('').reverse().join(''), 'base64').toString();
+              coins = parseInt(decodedCoins) || 10;
+            } catch(e) {
+              console.log('Could not decode coins');
+            }
+          }
+          
+          targetData = {
+            username: profile.username,
+            permanentId: profile.permanentId || 'N/A',
+            coins: coins,
+            gems: profile.gems || 0,
+            status: profile.status || 'player'
+          };
+          break;
+        }
+      } catch(e) {
+        continue; // Skip invalid saves
+      }
+    }
+    
+    if (!targetData) {
       adminClient.ws.send(JSON.stringify({
         type: 'user_lookup_result',
         success: false,
-        message: 'User not found in database'
+        message: 'User not found in saves database'
       }));
       return;
     }
@@ -1350,18 +1390,14 @@ async function handleLookupAction(adminClient, targetClient, data) {
     adminClient.ws.send(JSON.stringify({
       type: 'user_lookup_result',
       success: true,
-      username: targetClient.username,
-      permanentId: userData.userId || targetClient.permanentId,
-      coins: userData.coins || 0,
-      gems: userData.gems || 0,
-      status: targetClient.status
+      ...targetData
     }));
     
     log('ADMIN_ACTION', {
       action: 'LOOKUP',
       admin: data.adminUsername,
-      target: targetClient.username,
-      targetId: userData.userId
+      target: targetData.username,
+      targetId: targetData.permanentId
     });
     
   } catch(e) {
@@ -1369,10 +1405,11 @@ async function handleLookupAction(adminClient, targetClient, data) {
     adminClient.ws.send(JSON.stringify({
       type: 'user_lookup_result',
       success: false,
-      message: 'Database error'
+      message: 'Database error: ' + e.message
     }));
   }
 }
+
 async function handleResetAction(adminClient, targetClient, data) {
   const { adminRank } = data;
   
