@@ -148,7 +148,8 @@ const rooms = new Map();
 const queuedPlayers = new Map();
 const BANNED_IPS = new Set([
   '68.103.231.240',
-  '174.210.162.81'
+  '174.210.162.81',
+  '209.245.239.37'
 ]);
 
 // Track last logged actions to prevent spam
