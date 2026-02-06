@@ -1353,26 +1353,31 @@ if (profile.username === targetUsername) {
   
   console.log('🔍 SEARCHING FOR COINS in save.data keys...');
   
+  // Search all keys in save.data for the coin data
   for (const [key, value] of Object.entries(save.data)) {
+    // Skip non-string values
     if (typeof value !== 'string') continue;
     
+    // Skip keys that are obviously not coin data
+    if (key.length > 20 || !key.includes('Ø')) continue;
+    
     try {
+      // Try to decode the value as reverse base64
       const reversed = value.split('').reverse().join('');
       const decodedValue = Buffer.from(reversed, 'base64').toString();
       const parsedNum = parseInt(decodedValue);
       
-      if (!isNaN(parsedNum) && parsedNum >= 0 && parsedNum < 1e21) {
-        const keyBase64 = Buffer.from(key).toString('base64');
-        
-        console.log(`  Key: "${key}" | Base64: ${keyBase64} | Value: ${parsedNum}`);
-        
-        if (keyBase64 === 'FcgTPz0=' || key === '_coinData') {
-          coins = parsedNum;
-          console.log('✅ FOUND COINS:', coins, 'from key:', JSON.stringify(key));
-          break;
-        }
+      console.log(`  Key: "${key}" | Decoded: ${decodedValue} | Parsed: ${parsedNum}`);
+      
+      // Check if this looks like a valid coin amount
+      // Coins should be a reasonable number (not NaN, positive, less than 1e21)
+      if (!isNaN(parsedNum) && parsedNum > 0 && decodedValue === parsedNum.toString()) {
+        coins = parsedNum;
+        console.log('✅ FOUND COINS:', coins, 'from key:', JSON.stringify(key));
+        break;
       }
     } catch(e) {
+      // Silently skip invalid values
       continue;
     }
   }
