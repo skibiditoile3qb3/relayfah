@@ -1351,18 +1351,24 @@ if (profile.username === targetUsername) {
   // Find coins - they're stored in an encoded key
   let coins = 10; // default
   
-  // Search all keys in save.data for the coin data
+  console.log('🔍 SEARCHING FOR COINS in save.data keys...');
+  
   for (const [key, value] of Object.entries(save.data)) {
+    if (typeof value !== 'string') continue;
     
     try {
-      const decodedValue = Buffer.from(value.split('').reverse().join(''), 'base64').toString();
+      const reversed = value.split('').reverse().join('');
+      const decodedValue = Buffer.from(reversed, 'base64').toString();
       const parsedNum = parseInt(decodedValue);
       
-      if (!isNaN(parsedNum) && parsedNum >= 0) {
-        const keyBase64 = Buffer.from(key, 'utf8').toString('base64');
-        if (keyBase64 === 'X2NvaW5EYXRh' || key.charCodeAt(0) === 21) {
+      if (!isNaN(parsedNum) && parsedNum >= 0 && parsedNum < 1e21) {
+        const keyBase64 = Buffer.from(key).toString('base64');
+        
+        console.log(`  Key: "${key}" | Base64: ${keyBase64} | Value: ${parsedNum}`);
+        
+        if (keyBase64 === 'FcgTPz0=' || key === '_coinData') {
           coins = parsedNum;
-          console.log('✅ Decoded coins:', coins, 'from key:', key);
+          console.log('✅ FOUND COINS:', coins, 'from key:', JSON.stringify(key));
           break;
         }
       }
@@ -1370,6 +1376,8 @@ if (profile.username === targetUsername) {
       continue;
     }
   }
+  
+  console.log('💰 Final coins value:', coins);
           
           const rebirthData = profile.rebirthData || {
             tier: 0,
