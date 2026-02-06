@@ -1347,19 +1347,29 @@ async function handleLookupAction(adminClient, targetClient, data) {
         
         const profile = JSON.parse(profileString);
         
-        if (profile.username === targetUsername) {
-          const coinsKey = Buffer.from('X2NvaW5EYXRh', 'base64').toString();
-          const encodedCoins = save.data?.[coinsKey];
-          
-          let coins = 10; // default
-          if (encodedCoins) {
-            try {
-              const decodedCoins = Buffer.from(encodedCoins.split('').reverse().join(''), 'base64').toString();
-              coins = parseInt(decodedCoins) || 10;
-            } catch(e) {
-              console.log('Could not decode coins');
-            }
-          }
+if (profile.username === targetUsername) {
+  // Find coins - they're stored in an encoded key
+  let coins = 10; // default
+  
+  // Search all keys in save.data for the coin data
+  for (const [key, value] of Object.entries(save.data)) {
+    
+    try {
+      const decodedValue = Buffer.from(value.split('').reverse().join(''), 'base64').toString();
+      const parsedNum = parseInt(decodedValue);
+      
+      if (!isNaN(parsedNum) && parsedNum >= 0) {
+        const keyBase64 = Buffer.from(key, 'utf8').toString('base64');
+        if (keyBase64 === 'X2NvaW5EYXRh' || key.charCodeAt(0) === 21) {
+          coins = parsedNum;
+          console.log('✅ Decoded coins:', coins, 'from key:', key);
+          break;
+        }
+      }
+    } catch(e) {
+      continue;
+    }
+  }
           
           const rebirthData = profile.rebirthData || {
             tier: 0,
