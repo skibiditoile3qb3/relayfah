@@ -1189,6 +1189,9 @@ switch (action) {
   case 'damage_building':
     await handleDamageBuilding(client.room, actionData);
     break;
+    case 'damage_resource':
+    await handleDamageResource(client.room, actionData);
+    break;
   case 'attack_player':
     handleAttackPlayer(client.room, clientId, actionData);
     break;
@@ -1355,6 +1358,58 @@ async function handlePickupDrop(room, clientId, data) {
     });
   } catch(e) {
     console.error('Error picking up drop:', e);
+  }
+}
+async function handleDamageResource(room, data) {
+  if (!db) return;
+  
+  try {
+    if (data.destroyed) {
+      // Remove the resource node
+      await db.collection('survival_worlds').updateOne(
+        { room },
+        { $pull: { resourceNodes: { id: data.resourceId } } }
+      );
+      
+      log('RESOURCE_DESTROYED', { room, resourceId: data.resourceId, type: data.reward ? Object.keys(data.reward)[0] : 'unknown' });
+      
+      // Check if all resources are gone
+      const world = await db.collection('survival_worlds').findOne({ room });
+      if (world && world.resourceNodes && world.resourceNodes.length === 0) {
+        // Mark time when all resources were destroyed
+        await db.collection('survival_worlds').updateOne(
+          { room },
+          { $set: { lastResourceCheck: Date.now() } }
+        );
+        
+        // Wait 30 seconds then respawn all resources
+        setTimeout(async () => {
+          const newNodes = generateResourceNodes();
+          await db.collection('survival_worlds').updateOne(
+            { room },
+            { $set: { resourceNodes: newNodes } }
+          );
+          
+          log('RESOURCES_RESPAWNED', { room, count: newNodes.length });
+          
+          // Broadcast to all players in room
+          broadcast(room, {
+            type: 'player_action',
+            action: 'spawn_resources',
+            actionData: { nodes: newNodes }
+          });
+        }, 30000);
+      }
+    }
+    
+    // Broadcast damage to all players
+    broadcast(room, {
+      type: 'player_action',
+      action: 'damage_resource',
+      actionData: data
+    });
+  } catch(e) {
+    console.error('Error damaging resource:', e);
   }
 }
 function handlePromoteAction(adminClient, targetClient, data) {
