@@ -463,12 +463,30 @@ if (room === 'survival_world' && db) {
       log('WORLD_CREATED', { room, resourceCount: resources.length });
     }
     
+    // Load player's saved inventory if it exists
+    let savedInventory = null;
+    let savedHealth = null;
+    
+    if (client.permanentId) {
+      const savedPlayer = await db.collection('survival_players').findOne({
+        userId: client.permanentId,
+        room: room
+      });
+      
+      if (savedPlayer) {
+        savedInventory = savedPlayer.inventory;
+        savedHealth = savedPlayer.health;
+      }
+    }
+    
     client.ws.send(JSON.stringify({
       type: 'joined',
       room,
       players,
       worldState: world,
-      chatHistory: dbHistory
+      chatHistory: dbHistory,
+      savedInventory: savedInventory,
+      savedHealth: savedHealth
     }));
   } catch(e) {
     console.error('Error loading world:', e);
@@ -1100,10 +1118,32 @@ async function handleSurvivalAction(clientId, data) {
   }
 }
 
-function handlePlayerUpdate(room, clientId, data) {
+async function handlePlayerUpdate(room, clientId, data) {
   const client = clients.get(clientId);
   if (!client) return;
-
+  
+  // Store inventory in database if it exists
+  if (data.inventory && client.permanentId && db) {
+    try {
+      await db.collection('survival_players').updateOne(
+        { userId: client.permanentId, room: room },
+        { 
+          $set: { 
+            userId: client.permanentId,
+            room: room,
+            inventory: data.inventory,
+            health: data.health || 100,
+            lastUpdated: Date.now()
+          } 
+        },
+        { upsert: true }
+      );
+    } catch(e) {
+      console.error('Error storing player data:', e);
+    }
+  }
+  
+  // Broadcast player position/state to others WITH player info
   broadcast(room, {
     type: 'player_action',
     playerId: client.permanentId,
@@ -1116,7 +1156,6 @@ function handlePlayerUpdate(room, clientId, data) {
     }
   }, clientId);
 }
-
 async function handleBuild(room, clientId, building) {
   if (!db) return;
   
