@@ -330,7 +330,11 @@ function handleMessage(clientId, data) {
    case 'admin_action':
     handleAdminAction(clientId, data);
     break;
- 
+      
+ case 'survival_action':
+    handleSurvivalAction(clientId, data);
+    break;
+      
     default:
       client.ws.send(JSON.stringify({
         type: 'error',
@@ -443,12 +447,47 @@ const players = Array.from(rooms.get(room))
   
   console.log('📤 Sending joined event to client'); // ← ADD THIS
   
+if (room === 'survival_world' && db) {
+  try {
+    let world = await db.collection('survival_worlds').findOne({ room });
+    
+    if (!world) {
+      const resources = generateDeterministicResources();
+      world = {
+        room,
+        buildings: [],
+        resources: resources,
+        createdAt: Date.now()
+      };
+      await db.collection('survival_worlds').insertOne(world);
+      log('WORLD_CREATED', { room, resourceCount: resources.length });
+    }
+    
+    client.ws.send(JSON.stringify({
+      type: 'joined',
+      room,
+      players,
+      worldState: world,
+      chatHistory: dbHistory
+    }));
+  } catch(e) {
+    console.error('Error loading world:', e);
+    client.ws.send(JSON.stringify({
+      type: 'joined',
+      room,
+      players,
+      worldState: null,
+      chatHistory: dbHistory
+    }));
+  }
+} else {
   client.ws.send(JSON.stringify({
     type: 'joined',
     room,
     players,
-    chatHistory: dbHistory  
+    chatHistory: dbHistory
   }));
+}
   console.log('✅ Joined event sent!');
   
   // Notify others in room
@@ -589,7 +628,22 @@ function handlePlayerAction(clientId, data) {
   
   log('PLAYER_ACTION', { room: client.room, clientId, action: data.action });
   
-  // Relay action to all players in room
+  // ✅ CHECK FOR SURVIVAL GAME ACTIONS
+  const survivalActions = [
+    'player_update',
+    'build', 
+    'damage_building', 
+    'damage_resource', 
+    'attack_player', 
+    'create_trade'
+  ];
+  
+  if (survivalActions.includes(data.action)) {
+    handleSurvivalAction(clientId, data);
+    return;
+  }
+  
+  // Relay action to all players in room (existing gladiator/other games)
   broadcast(client.room, {
     type: 'player_action',
     playerId: clientId,
@@ -1023,6 +1077,269 @@ function handleAdminAction(clientId, data) {
         handleResetAction(client, targetClient, data);
         break;
   }
+}
+function seededRandom(seed) {
+  let x = Math.sin(seed++) * 10000;
+  return x - Math.floor(x);
+}
+
+function generateDeterministicResources() {
+  const resources = [];
+  const WORLD_SIZE = 500;
+  const SPAWN_SIZE = 10;
+  const TILE_SIZE = 20;
+  
+  // Use fixed seed for consistent world generation
+  const WORLD_SEED = 12345;
+  let seed = WORLD_SEED;
+  
+  function isInSpawn(x, y) {
+    const spawnX = WORLD_SIZE / 2;
+    const spawnY = WORLD_SIZE / 2;
+    const spawnRadius = (SPAWN_SIZE * TILE_SIZE) / 2;
+    return Math.abs(x - spawnX) < spawnRadius && Math.abs(y - spawnY) < spawnRadius;
+  }
+  
+  // Generate 50 trees at fixed positions
+  for (let i = 0; i < 50; i++) {
+    let x, y, attempts = 0;
+    
+    do {
+      x = seededRandom(seed++) * WORLD_SIZE;
+      y = seededRandom(seed++) * WORLD_SIZE;
+      attempts++;
+    } while (isInSpawn(x, y) && attempts < 100);
+    
+    if (attempts < 100) {
+      resources.push({
+        id: 'tree_' + i,
+        type: 'tree',
+        x: Math.floor(x),
+        y: Math.floor(y),
+        health: 50,
+        maxHealth: 50
+      });
+    }
+  }
+  
+  // Generate 30 stone nodes at fixed positions
+  for (let i = 0; i < 30; i++) {
+    let x, y, attempts = 0;
+    
+    do {
+      x = seededRandom(seed++) * WORLD_SIZE;
+      y = seededRandom(seed++) * WORLD_SIZE;
+      attempts++;
+    } while (isInSpawn(x, y) && attempts < 100);
+    
+    if (attempts < 100) {
+      resources.push({
+        id: 'stone_' + i,
+        type: 'stone',
+        x: Math.floor(x),
+        y: Math.floor(y),
+        health: 80,
+        maxHealth: 80
+      });
+    }
+  }
+  
+  return resources;
+}
+
+async function handleSurvivalAction(clientId, data) {
+  const client = clients.get(clientId);
+  if (!client || !client.room) return;
+  
+  const { action, data: actionData } = data;
+  
+  switch (action) {
+    case 'player_update':
+      handlePlayerUpdate(client.room, clientId, actionData);
+      break;
+    case 'build':
+      await handleBuild(client.room, clientId, actionData);
+      break;
+    case 'damage_building':
+      await handleDamageBuilding(client.room, actionData);
+      break;
+    case 'damage_resource':
+      await handleDamageResource(client.room, actionData);
+      break;
+    case 'attack_player':
+      handleAttackPlayer(client.room, clientId, actionData);
+      break;
+    case 'create_trade':
+      handleCreateTrade(client.room, clientId, actionData);
+      break;
+  }
+}
+
+function handlePlayerUpdate(room, clientId, data) {
+  // Broadcast player position/state to others
+  broadcast(room, {
+    type: 'player_action',
+    playerId: clientId,
+    action: 'player_update',
+    actionData: data
+  }, clientId);
+}
+
+async function handleBuild(room, clientId, building) {
+  if (!db) return;
+  
+  try {
+    // Add building to world
+    await db.collection('survival_worlds').updateOne(
+      { room },
+      { $push: { buildings: building } },
+      { upsert: true }
+    );
+    
+    log('BUILD', { room, buildingId: building.id, type: building.type });
+    
+    // Broadcast to all players
+    broadcast(room, {
+      type: 'player_action',
+      playerId: clientId,
+      action: 'build',
+      actionData: building
+    });
+  } catch(e) {
+    console.error('Error building:', e);
+  }
+}
+
+async function handleDamageBuilding(room, data) {
+  if (!db) return;
+  
+  try {
+    if (data.destroyed) {
+      // Remove building from world
+      await db.collection('survival_worlds').updateOne(
+        { room },
+        { $pull: { buildings: { id: data.buildingId } } }
+      );
+      
+      log('BUILDING_DESTROYED', { room, buildingId: data.buildingId });
+    } else {
+      // Update building health
+      await db.collection('survival_worlds').updateOne(
+        { room, 'buildings.id': data.buildingId },
+        { $inc: { 'buildings.$.health': -data.damage } }
+      );
+    }
+    
+    // Broadcast to all players
+    broadcast(room, {
+      type: 'player_action',
+      action: 'damage_building',
+      actionData: data
+    });
+  } catch(e) {
+    console.error('Error damaging building:', e);
+  }
+}
+
+async function handleDamageResource(room, data) {
+  if (!db) return;
+  
+  try {
+    if (data.destroyed) {
+      // Resource is destroyed - schedule respawn
+      const respawnTime = Date.now() + (60 * 1000); // 60 seconds
+      
+      await db.collection('survival_worlds').updateOne(
+        { room },
+        { 
+          $pull: { resources: { id: data.resourceId } },
+          $push: { 
+            respawning: {
+              id: data.resourceId,
+              respawnAt: respawnTime
+            }
+          }
+        }
+      );
+      
+      // Schedule respawn
+      setTimeout(async () => {
+        try {
+          const world = await db.collection('survival_worlds').findOne({ room });
+          if (!world) return;
+          
+          const respawning = world.respawning?.find(r => r.id === data.resourceId);
+          if (!respawning) return;
+          
+          // Get original resource data from deterministic generation
+          const allResources = generateDeterministicResources();
+          const originalResource = allResources.find(r => r.id === data.resourceId);
+          
+          if (originalResource) {
+            // Respawn resource at original location with full health
+            await db.collection('survival_worlds').updateOne(
+              { room },
+              {
+                $push: { resources: originalResource },
+                $pull: { respawning: { id: data.resourceId } }
+              }
+            );
+            
+            // Broadcast respawn to all players
+            broadcast(room, {
+              type: 'resource_respawn',
+              resource: originalResource
+            });
+            
+            log('RESOURCE_RESPAWN', { room, resourceId: data.resourceId });
+          }
+        } catch(e) {
+          console.error('Error respawning resource:', e);
+        }
+      }, 60000);
+      
+      log('RESOURCE_DESTROYED', { room, resourceId: data.resourceId });
+    } else {
+      // Update resource health
+      await db.collection('survival_worlds').updateOne(
+        { room, 'resources.id': data.resourceId },
+        { $inc: { 'resources.$.health': -data.damage } }
+      );
+    }
+    
+    // Broadcast to all players
+    broadcast(room, {
+      type: 'player_action',
+      action: 'damage_resource',
+      actionData: data
+    });
+  } catch(e) {
+    console.error('Error damaging resource:', e);
+  }
+}
+
+function handleAttackPlayer(room, clientId, data) {
+  // Broadcast attack to all players (target will handle damage client-side)
+  broadcast(room, {
+    type: 'player_action',
+    playerId: clientId,
+    action: 'attack_player',
+    actionData: data
+  });
+  
+  log('PLAYER_ATTACK', { room, attacker: clientId, target: data.targetId, damage: data.damage });
+}
+
+function handleCreateTrade(room, clientId, trade) {
+  // Broadcast trade offer to all players
+  broadcast(room, {
+    type: 'player_action',
+    playerId: clientId,
+    action: 'create_trade',
+    actionData: trade
+  });
+  
+  log('TRADE_CREATED', { room, tradeId: trade.id, trader: trade.trader });
 }
 
 function handlePromoteAction(adminClient, targetClient, data) {
