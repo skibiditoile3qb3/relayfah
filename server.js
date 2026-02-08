@@ -456,11 +456,14 @@ if (!world) {
     room,
     buildings: [],
     drops: [],
+    resourceNodes: generateResourceNodes(),
+    lastResourceCheck: Date.now(),
     createdAt: Date.now()
   };
   await db.collection('survival_worlds').insertOne(world);
   log('WORLD_CREATED', { room });
 }
+
     
     // Load player's saved inventory if it exists
     // Load player's saved inventory, health, and position if it exists
@@ -576,7 +579,74 @@ const players = Array.from(rooms.get(room))
   
   client.room = null;
 }
-
+function generateResourceNodes() {
+  const nodes = [];
+  const WORLD_SIZE = 6000;
+  const SPAWN_SIZE = 5;
+  const TILE_SIZE = 40;
+  const MIN_DISTANCE = 200; // Minimum distance between nodes
+  
+  function isInSpawn(x, y) {
+    const spawnX = WORLD_SIZE / 2;
+    const spawnY = WORLD_SIZE / 2;
+    const spawnRadius = (SPAWN_SIZE * TILE_SIZE) / 2;
+    return Math.abs(x - spawnX) < spawnRadius && Math.abs(y - spawnY) < spawnRadius;
+  }
+  
+  function isTooClose(x, y, existingNodes) {
+    for (const node of existingNodes) {
+      const distance = Math.sqrt(Math.pow(node.x - x, 2) + Math.pow(node.y - y, 2));
+      if (distance < MIN_DISTANCE) {
+        return true;
+      }
+    }
+    return false;
+  }
+  
+  // Generate 8 trees
+  let treesGenerated = 0;
+  let attempts = 0;
+  while (treesGenerated < 8 && attempts < 100) {
+    const x = Math.random() * (WORLD_SIZE - 100) + 50;
+    const y = Math.random() * (WORLD_SIZE - 100) + 50;
+    
+    if (!isInSpawn(x, y) && !isTooClose(x, y, nodes)) {
+      nodes.push({
+        id: 'tree_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9),
+        type: 'tree',
+        x: x,
+        y: y,
+        health: 100,
+        maxHealth: 100
+      });
+      treesGenerated++;
+    }
+    attempts++;
+  }
+  
+  // Generate 8 stone nodes
+  let stonesGenerated = 0;
+  attempts = 0;
+  while (stonesGenerated < 8 && attempts < 100) {
+    const x = Math.random() * (WORLD_SIZE - 100) + 50;
+    const y = Math.random() * (WORLD_SIZE - 100) + 50;
+    
+    if (!isInSpawn(x, y) && !isTooClose(x, y, nodes)) {
+      nodes.push({
+        id: 'stone_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9),
+        type: 'stone',
+        x: x,
+        y: y,
+        health: 100,
+        maxHealth: 100
+      });
+      stonesGenerated++;
+    }
+    attempts++;
+  }
+  
+  return nodes;
+}
 async function handleChat(clientId, data) {  // ← Add 'async'
   const client = clients.get(clientId);
   if (!client || !client.room) return;
