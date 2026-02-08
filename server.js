@@ -452,16 +452,14 @@ if (room === 'survival_world' && db) {
 let world = await db.collection('survival_worlds').findOne({ room });
 
 if (!world) {
-  const resources = generateDeterministicResources();
   world = {
     room,
     buildings: [],
-    resources: resources,
     drops: [],
     createdAt: Date.now()
   };
   await db.collection('survival_worlds').insertOne(world);
-  log('WORLD_CREATED', { room, resourceCount: resources.length });
+  log('WORLD_CREATED', { room });
 }
     
     // Load player's saved inventory if it exists
