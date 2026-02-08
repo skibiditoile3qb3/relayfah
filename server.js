@@ -1101,12 +1101,19 @@ async function handleSurvivalAction(clientId, data) {
 }
 
 function handlePlayerUpdate(room, clientId, data) {
-  // Broadcast player position/state to others
+  const client = clients.get(clientId);
+  if (!client) return;
+
   broadcast(room, {
     type: 'player_action',
-    playerId: clientId,
+    playerId: client.permanentId,
     action: 'player_update',
-    actionData: data
+    actionData: {
+      ...data,
+      username: client.username,
+      icon: client.gladiatorCosmetics?.icon || '⚔️',
+      color: client.gladiatorCosmetics?.slashColor || '#ffffff'
+    }
   }, clientId);
 }
 
@@ -1157,14 +1164,21 @@ async function handleDamageBuilding(room, data) {
 }
 
 function handleAttackPlayer(room, clientId, data) {
+  const attacker = clients.get(clientId);
+  
   broadcast(room, {
     type: 'player_action',
-    playerId: clientId,
+    playerId: attacker?.permanentId || clientId,
     action: 'attack_player',
     actionData: data
   });
   
-  log('PLAYER_ATTACK', { room, attacker: clientId, target: data.targetId, damage: data.damage });
+  log('PLAYER_ATTACK', { 
+    room, 
+    attacker: attacker?.username || clientId, 
+    target: data.targetId, 
+    damage: data.damage 
+  });
 }
 function handlePromoteAction(adminClient, targetClient, data) {
   const { newRank, adminRank } = data;
