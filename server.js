@@ -549,11 +549,12 @@ function handleLeave(clientId) {
     if (rooms.get(room).size === 0) {
       rooms.delete(room);
     } else {
-      // Notify others
+      // Notify others - USE PERMANENT ID
       broadcast(room, {
         type: 'player_left',
         player: {
           id: client.id,
+          permanentId: client.permanentId,  // ← ADD THIS
           username: client.username
         }
       });
