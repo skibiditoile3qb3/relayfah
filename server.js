@@ -1284,11 +1284,19 @@ async function handleDamageBuilding(room, data) {
       );
     }
     
-    broadcast(room, {
-      type: 'player_action',
-      action: 'damage_building',
-      actionData: data
-    });
+    const world = await db.collection('survival_worlds').findOne({ room });
+const building = world?.buildings.find(b => b.id === data.buildingId);
+
+broadcast(room, {
+  type: 'player_action',
+  action: 'damage_building',
+  actionData: {
+    buildingId: data.buildingId,
+    damage: data.damage,
+    destroyed: data.destroyed,
+    currentHealth: building?.health || 0 // Send current health from DB
+  }
+});
   } catch(e) {
     console.error('Error damaging building:', e);
   }
@@ -1415,11 +1423,21 @@ async function handleDamageResource(room, data) {
     }
     
     // Broadcast damage to all players
-    broadcast(room, {
-      type: 'player_action',
-      action: 'damage_resource',
-      actionData: data
-    });
+   const world = await db.collection('survival_worlds').findOne({ room });
+const resource = world?.resourceNodes.find(r => r.id === data.resourceId);
+
+// Broadcast damage to all players
+broadcast(room, {
+  type: 'player_action',
+  action: 'damage_resource',
+  actionData: {
+    resourceId: data.resourceId,
+    damage: data.damage,
+    destroyed: data.destroyed,
+    reward: data.reward,
+    currentHealth: resource?.health || 0 // Send current health from DB
+  }
+});
   } catch(e) {
     console.error('Error damaging resource:', e);
   }
