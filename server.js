@@ -449,45 +449,53 @@ const players = Array.from(rooms.get(room))
   
 if (room === 'survival_world' && db) {
   try {
-    let world = await db.collection('survival_worlds').findOne({ room });
-    
-    if (!world) {
-      const resources = generateDeterministicResources();
-      world = {
-        room,
-        buildings: [],
-        resources: resources,
-        createdAt: Date.now()
-      };
-      await db.collection('survival_worlds').insertOne(world);
-      log('WORLD_CREATED', { room, resourceCount: resources.length });
-    }
+let world = await db.collection('survival_worlds').findOne({ room });
+
+if (!world) {
+  const resources = generateDeterministicResources();
+  world = {
+    room,
+    buildings: [],
+    resources: resources,
+    drops: [],
+    createdAt: Date.now()
+  };
+  await db.collection('survival_worlds').insertOne(world);
+  log('WORLD_CREATED', { room, resourceCount: resources.length });
+}
     
     // Load player's saved inventory if it exists
-    let savedInventory = null;
-    let savedHealth = null;
-    
-    if (client.permanentId) {
-      const savedPlayer = await db.collection('survival_players').findOne({
-        userId: client.permanentId,
-        room: room
-      });
-      
-      if (savedPlayer) {
-        savedInventory = savedPlayer.inventory;
-        savedHealth = savedPlayer.health;
-      }
-    }
-    
-    client.ws.send(JSON.stringify({
-      type: 'joined',
-      room,
-      players,
-      worldState: world,
-      chatHistory: dbHistory,
-      savedInventory: savedInventory,
-      savedHealth: savedHealth
-    }));
+    // Load player's saved inventory, health, and position if it exists
+let savedInventory = null;
+let savedHealth = null;
+let savedX = null;
+let savedY = null;
+
+if (client.permanentId) {
+  const savedPlayer = await db.collection('survival_players').findOne({
+    userId: client.permanentId,
+    room: room
+  });
+  
+  if (savedPlayer) {
+    savedInventory = savedPlayer.inventory;
+    savedHealth = savedPlayer.health;
+    savedX = savedPlayer.x;
+    savedY = savedPlayer.y;
+  }
+}
+
+client.ws.send(JSON.stringify({
+  type: 'joined',
+  room,
+  players,
+  worldState: world,
+  chatHistory: dbHistory,
+  savedInventory: savedInventory,
+  savedHealth: savedHealth,
+  savedX: savedX,
+  savedY: savedY
+}));
   } catch(e) {
     console.error('Error loading world:', e);
     client.ws.send(JSON.stringify({
@@ -646,15 +654,16 @@ function handlePlayerAction(clientId, data) {
   
   log('PLAYER_ACTION', { room: client.room, clientId, action: data.action });
   
-  // ✅ CHECK FOR SURVIVAL GAME ACTIONS
-  const survivalActions = [
-    'player_update',
-    'build', 
-    'damage_building', 
-    'damage_resource', 
-    'attack_player', 
-    'create_trade'
-  ];
+const survivalActions = [
+  'player_update',
+  'build', 
+  'damage_building', 
+  'damage_resource', 
+  'attack_player', 
+  'create_trade',
+  'death_drop',
+  'pickup_drop'
+];
   
   if (survivalActions.includes(data.action)) {
     handleSurvivalAction(clientId, data);
@@ -1102,47 +1111,53 @@ async function handleSurvivalAction(clientId, data) {
   
   const { action, data: actionData } = data;
   
-  switch (action) {
-    case 'player_update':
-      handlePlayerUpdate(client.room, clientId, actionData);
-      break;
-    case 'build':
-      await handleBuild(client.room, clientId, actionData);
-      break;
-    case 'damage_building':
-      await handleDamageBuilding(client.room, actionData);
-      break;
-    case 'attack_player':
-      handleAttackPlayer(client.room, clientId, actionData);
-      break;
-  }
+switch (action) {
+  case 'player_update':
+    handlePlayerUpdate(client.room, clientId, actionData);
+    break;
+  case 'build':
+    await handleBuild(client.room, clientId, actionData);
+    break;
+  case 'damage_building':
+    await handleDamageBuilding(client.room, actionData);
+    break;
+  case 'attack_player':
+    handleAttackPlayer(client.room, clientId, actionData);
+    break;
+  case 'death_drop':
+    await handleDeathDrop(client.room, clientId, actionData);
+    break;
+  case 'pickup_drop':
+    await handlePickupDrop(client.room, clientId, actionData);
+    break;
+}
 }
 
 async function handlePlayerUpdate(room, clientId, data) {
   const client = clients.get(clientId);
   if (!client) return;
   
-  // Store inventory in database if it exists
-  if (data.inventory && client.permanentId && db) {
-    try {
-      await db.collection('survival_players').updateOne(
-        { userId: client.permanentId, room: room },
-        { 
-          $set: { 
-            userId: client.permanentId,
-            room: room,
-            inventory: data.inventory,
-            health: data.health || 100,
-            lastUpdated: Date.now()
-          } 
-        },
-        { upsert: true }
-      );
-    } catch(e) {
-      console.error('Error storing player data:', e);
-    }
+ if (data.inventory && client.permanentId && db) {
+  try {
+    await db.collection('survival_players').updateOne(
+      { userId: client.permanentId, room: room },
+      { 
+        $set: { 
+          userId: client.permanentId,
+          room: room,
+          inventory: data.inventory,
+          health: data.health || 100,
+          x: data.x,
+          y: data.y,
+          lastUpdated: Date.now()
+        } 
+      },
+      { upsert: true }
+    );
+  } catch(e) {
+    console.error('Error storing player data:', e);
   }
-  
+}
   // Broadcast player position/state to others WITH player info
   broadcast(room, {
     type: 'player_action',
@@ -1218,6 +1233,61 @@ function handleAttackPlayer(room, clientId, data) {
     target: data.targetId, 
     damage: data.damage 
   });
+}
+async function handleDeathDrop(room, clientId, data) {
+  if (!db) return;
+  
+  const dropId = 'drop_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+  const drop = {
+    id: dropId,
+    x: data.x,
+    y: data.y,
+    inventory: data.inventory,
+    createdAt: Date.now()
+  };
+  
+  // Store drop in world
+  try {
+    await db.collection('survival_worlds').updateOne(
+      { room },
+      { $push: { drops: drop } },
+      { upsert: true }
+    );
+    
+    log('DEATH_DROP', { room, dropId, x: data.x, y: data.y, inventory: data.inventory });
+    
+    // Broadcast to all players
+    broadcast(room, {
+      type: 'player_action',
+      action: 'death_drop',
+      actionData: drop
+    });
+  } catch(e) {
+    console.error('Error creating death drop:', e);
+  }
+}
+
+async function handlePickupDrop(room, clientId, data) {
+  if (!db) return;
+  
+  try {
+    // Remove drop from world
+    await db.collection('survival_worlds').updateOne(
+      { room },
+      { $pull: { drops: { id: data.dropId } } }
+    );
+    
+    log('PICKUP_DROP', { room, dropId: data.dropId, picker: clientId });
+    
+    // Broadcast to all players
+    broadcast(room, {
+      type: 'player_action',
+      action: 'pickup_drop',
+      actionData: { dropId: data.dropId }
+    });
+  } catch(e) {
+    console.error('Error picking up drop:', e);
+  }
 }
 function handlePromoteAction(adminClient, targetClient, data) {
   const { newRank, adminRank } = data;
