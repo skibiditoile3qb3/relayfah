@@ -1376,12 +1376,6 @@ async function handleDamageResource(room, data) {
         { room },
         { $pull: { resourceNodes: { id: data.resourceId } } }
       );
-    } else {
-      await db.collection('survival_worlds').updateOne(
-        { room, 'resourceNodes.id': data.resourceId },
-        { $inc: { 'resourceNodes.$.health': -data.damage } }
-      );
-    }
       
       log('RESOURCE_DESTROYED', { room, resourceId: data.resourceId, type: data.reward ? Object.keys(data.reward)[0] : 'unknown' });
       
@@ -1412,6 +1406,12 @@ async function handleDamageResource(room, data) {
           });
         }, 30000);
       }
+    } else {
+      // Update resource health in database
+      await db.collection('survival_worlds').updateOne(
+        { room, 'resourceNodes.id': data.resourceId },
+        { $inc: { 'resourceNodes.$.health': -data.damage } }
+      );
     }
     
     // Broadcast damage to all players
