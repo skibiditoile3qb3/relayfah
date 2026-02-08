@@ -1276,6 +1276,12 @@ async function handleDamageBuilding(room, data) {
       );
       
       log('BUILDING_DESTROYED', { room, buildingId: data.buildingId });
+    } else {
+      // Update building health in database
+      await db.collection('survival_worlds').updateOne(
+        { room, 'buildings.id': data.buildingId },
+        { $inc: { 'buildings.$.health': -data.damage } }
+      );
     }
     
     broadcast(room, {
@@ -1370,6 +1376,12 @@ async function handleDamageResource(room, data) {
         { room },
         { $pull: { resourceNodes: { id: data.resourceId } } }
       );
+    } else {
+      await db.collection('survival_worlds').updateOne(
+        { room, 'resourceNodes.id': data.resourceId },
+        { $inc: { 'resourceNodes.$.health': -data.damage } }
+      );
+    }
       
       log('RESOURCE_DESTROYED', { room, resourceId: data.resourceId, type: data.reward ? Object.keys(data.reward)[0] : 'unknown' });
       
