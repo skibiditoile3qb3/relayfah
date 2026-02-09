@@ -334,6 +334,9 @@ function handleMessage(clientId, data) {
  case 'survival_action':
     handleSurvivalAction(clientId, data);
     break;
+  case 'airstrike':
+      handleAirstrike(clientId, data);
+      break;
       
     default:
       client.ws.send(JSON.stringify({
@@ -1954,6 +1957,52 @@ async function handleResetAction(adminClient, targetClient, data) {
       message: `${targetClient.username} has been reset (coins: 10, gems: 0)`
     }));
   }
+}
+function handleAirstrike(clientId, data) {
+  const client = clients.get(clientId);
+  if (!client) return;
+  
+  const { targetUsername, adType } = data;
+  
+  // Find target client
+  let targetClient = null;
+  for (const [id, c] of clients.entries()) {
+    if (c.username === targetUsername) {
+      targetClient = c;
+      break;
+    }
+  }
+  
+  if (!targetClient) {
+    client.ws.send(JSON.stringify({
+      type: 'airstrike_result',
+      success: false,
+      message: `User ${targetUsername} is not online`
+    }));
+    return;
+  }
+  
+  // Send airstrike to target
+  if (targetClient.ws.readyState === WebSocket.OPEN) {
+    targetClient.ws.send(JSON.stringify({
+      type: 'incoming_airstrike',
+      from: client.username,
+      adType: adType
+    }));
+  }
+  
+  // Confirm to sender
+  client.ws.send(JSON.stringify({
+    type: 'airstrike_result',
+    success: true,
+    message: `Airstrike sent to ${targetUsername}!`
+  }));
+  
+  log('AIRSTRIKE', {
+    from: client.username,
+    to: targetUsername,
+    adType: adType
+  });
 }
 
 // Clean up dead connections every 15 seconds
