@@ -610,7 +610,7 @@ function generateResourceNodes() {
   // Generate 8 trees
   let treesGenerated = 0;
   let attempts = 0;
-  while (treesGenerated < 8 && attempts < 100) {
+  while (treesGenerated < 16 && attempts < 100) {
     const x = Math.random() * (WORLD_SIZE - 100) + 50;
     const y = Math.random() * (WORLD_SIZE - 100) + 50;
     
@@ -631,7 +631,7 @@ function generateResourceNodes() {
   // Generate 8 stone nodes
   let stonesGenerated = 0;
   attempts = 0;
-  while (stonesGenerated < 8 && attempts < 100) {
+  while (stonesGenerated < 16 && attempts < 100) {
     const x = Math.random() * (WORLD_SIZE - 100) + 50;
     const y = Math.random() * (WORLD_SIZE - 100) + 50;
     
