@@ -300,8 +300,11 @@ function handleMessage(clientId, data) {
       handleGetPlayers(clientId);
       break;
 
-      case 'get_queue_count':  // NEW
+      case 'get_queue_count': 
   handleGetQueueCount(clientId);
+  break;
+      case 'voice_note':
+  handleVoiceNote(clientId, data);
   break;
       
    case 'save_game':
@@ -650,6 +653,96 @@ function generateResourceNodes() {
   }
   
   return nodes;
+}
+function isValidBase64(str) {
+  if (typeof str !== 'string' || str.length === 0) return false;
+  // base64 chars only (allow trailing =)
+  return /^[A-Za-z0-9+/]+={0,2}$/.test(str);
+}
+
+function getBase64SizeBytes(base64) {
+  const padding = (base64.match(/=+$/) || [''])[0].length;
+  return Math.floor((base64.length * 3) / 4) - padding;
+}
+
+function handleVoiceNote(clientId, data) {
+  const client = clients.get(clientId);
+  if (!client || !client.room) return;
+
+  const {
+    room,
+    voiceNote,
+    voiceMimeType,
+    message,
+    nametag
+  } = data;
+
+  if (room !== client.room) return;
+
+  if (room === 'staff_chat') {
+    const staffRanks = ['owner', 'sr.admin', 'admin', 'moderator'];
+    if (!staffRanks.includes(client.status)) {
+      client.ws.send(JSON.stringify({
+        type: 'error',
+        message: 'Staff chat is for staff only'
+      }));
+      return;
+    }
+  }
+
+  if (!isValidBase64(voiceNote)) {
+    client.ws.send(JSON.stringify({
+      type: 'error',
+      message: 'Invalid voice note payload'
+    }));
+    return;
+  }
+
+  const MAX_BYTES = 2 * 1024 * 1024;
+  const payloadBytes = getBase64SizeBytes(voiceNote);
+  if (payloadBytes <= 0 || payloadBytes > MAX_BYTES) {
+    client.ws.send(JSON.stringify({
+      type: 'error',
+      message: 'Voice note too large'
+    }));
+    return;
+  }
+
+  const allowedMimes = new Set([
+    'audio/webm',
+    'audio/webm;codecs=opus',
+    'audio/ogg',
+    'audio/ogg;codecs=opus',
+    'audio/mp4',
+    'audio/mpeg'
+  ]);
+
+  const safeMime = allowedMimes.has(voiceMimeType) ? voiceMimeType : 'audio/webm';
+
+  const voiceMessage = {
+    id: generateId(),
+    username: client.username,
+    status: client.status || 'player',
+    nametag: nametag || 'none',
+    clientId,
+    message: (message || '🎤 Voice note').substring(0, 120),
+    voiceNote,
+    voiceMimeType: safeMime,
+    timestamp: Date.now()
+  };
+
+  log('VOICE_NOTE', {
+    room: client.room,
+    username: client.username,
+    bytes: payloadBytes,
+    mime: safeMime,
+    ip: client.ip
+  });
+
+  broadcast(client.room, {
+    type: 'voice_note',
+    message: voiceMessage
+  });
 }
 async function handleChat(clientId, data) {  // ← Add 'async'
   const client = clients.get(clientId);
