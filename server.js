@@ -586,7 +586,7 @@ const players = Array.from(rooms.get(room))
 function generateResourceNodes() {
   const nodes = [];
   const WORLD_SIZE = 6000;
-  const SPAWN_SIZE = 20;
+  const SPAWN_SIZE = 5;
   const TILE_SIZE = 40;
   const MIN_DISTANCE = 200; // Minimum distance between nodes
   
