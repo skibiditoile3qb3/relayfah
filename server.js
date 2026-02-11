@@ -484,12 +484,12 @@ if (client.permanentId) {
     room: room
   });
   
-  if (savedPlayer) {
-    savedInventory = savedPlayer.inventory;
-    savedHealth = savedPlayer.health;
-    savedX = savedPlayer.x;
-    savedY = savedPlayer.y;
-  }
+if (savedPlayer) {
+  savedInventory = normalizeSurvivalInventory(savedPlayer.inventory || {});
+  savedHealth = savedPlayer.health;
+  savedX = savedPlayer.x;
+  savedY = savedPlayer.y;
+}
 }
 
 client.ws.send(JSON.stringify({
@@ -585,6 +585,19 @@ const players = Array.from(rooms.get(room))
   }
   
   client.room = null;
+}
+function normalizeSurvivalInventory(inv = {}) {
+  return {
+    wood: inv.wood || 0,
+    stone: inv.stone || 0,
+    stick: inv.stick || 0,
+    crafting_table: inv.crafting_table || 0,
+    wood_sword: inv.wood_sword || 0,
+    stone_sword: inv.stone_sword || 0,
+    stone_axe: inv.stone_axe || 0,
+    wood_spear: inv.wood_spear || 0,
+    stone_spear: inv.stone_spear || 0
+  };
 }
 function generateResourceNodes() {
   const nodes = [];
@@ -1307,21 +1320,23 @@ async function handlePlayerUpdate(room, clientId, data) {
   
  if (data.inventory && client.permanentId && db) {
   try {
-    await db.collection('survival_players').updateOne(
-      { userId: client.permanentId, room: room },
-      { 
-        $set: { 
-          userId: client.permanentId,
-          room: room,
-          inventory: data.inventory,
-          health: data.health || 100,
-          x: data.x,
-          y: data.y,
-          lastUpdated: Date.now()
-        } 
-      },
-      { upsert: true }
-    );
+   const normalizedInventory = normalizeSurvivalInventory(data.inventory || {});
+
+await db.collection('survival_players').updateOne(
+  { userId: client.permanentId, room: room },
+  {
+    $set: {
+      userId: client.permanentId,
+      room: room,
+      inventory: normalizedInventory,
+      health: data.health || 100,
+      x: data.x,
+      y: data.y,
+      lastUpdated: Date.now()
+    }
+  },
+  { upsert: true }
+);
   } catch(e) {
     console.error('Error storing player data:', e);
   }
